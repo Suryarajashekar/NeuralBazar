@@ -1,0 +1,14 @@
+node_modules
+.next
+dist
+coverage
+artifacts
+cache
+typechain-types
+.env
+.env.local
+.env.*.local
+!.env.example
+*.log
+deployments/*.json
+!.gitkeep
