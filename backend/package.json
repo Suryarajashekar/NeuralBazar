@@ -5,10 +5,13 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:worker": "tsx watch src/worker.ts",
+    "dev:benchmark-worker": "tsx watch src/benchmarkWorker.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
+    "start:benchmark-worker": "node dist/benchmarkWorker.js",
     "lint": "tsc --noEmit",
+    "test:identity": "tsx --test src/services/identity.test.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts"
   },

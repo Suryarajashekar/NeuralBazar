@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {AIModelRegistry} from "./AIModelRegistry.sol";
@@ -9,9 +11,12 @@ import {AIModelRegistry} from "./AIModelRegistry.sol";
 /// @title AIModelMarketplaceV2
 /// @notice Governance-controlled model access marketplace with pull payments.
 /// @dev Deploy the governance address as a multisig (for example, a Safe).
-contract AIModelMarketplaceV2 is AccessControl, Pausable, ReentrancyGuard {
+contract AIModelMarketplaceV2 is AccessControl, EIP712, Pausable, ReentrancyGuard {
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant FEE_MANAGER_ROLE = keccak256("FEE_MANAGER_ROLE");
+    bytes32 public constant PURCHASE_AUTHORIZATION_TYPEHASH = keccak256(
+        "PurchaseAuthorization(uint256 listingId,address buyer,uint256 nonce,uint256 deadline)"
+    );
 
     struct Listing { uint256 listingId; uint256 modelId; address seller; uint256 price; bool active; }
 
@@ -23,6 +28,7 @@ contract AIModelMarketplaceV2 is AccessControl, Pausable, ReentrancyGuard {
     mapping(uint256 listingId => Listing listing) public listings;
     mapping(uint256 modelId => uint256 listingId) public activeListingByModel;
     mapping(address account => uint256 amount) public pendingWithdrawals;
+    mapping(address buyer => uint256 nonce) public purchaseNonces;
 
     event ListingCreated(uint256 indexed listingId, uint256 indexed modelId, address indexed seller, uint256 price);
     event ListingPriceUpdated(uint256 indexed listingId, uint256 price);
@@ -35,11 +41,14 @@ contract AIModelMarketplaceV2 is AccessControl, Pausable, ReentrancyGuard {
     event MarketplaceUnpaused(address indexed account);
     event PlatformFeeUpdated(uint96 platformFeeBps);
     event PlatformTreasuryUpdated(address indexed treasury);
+    event PurchaseAuthorizationUsed(address indexed buyer, uint256 indexed listingId, uint256 nonce, uint256 deadline);
 
     /// @param registryAddress Existing AIModelRegistry deployment.
     /// @param treasury Recipient configured for platform fees.
     /// @param governance Multisig that receives administrative roles.
-    constructor(address registryAddress, address payable treasury, address governance) {
+    constructor(address registryAddress, address payable treasury, address governance)
+        EIP712("NeuralBazaar Marketplace", "2")
+    {
         require(registryAddress != address(0), "MarketplaceV2: zero registry");
         require(treasury != address(0), "MarketplaceV2: zero treasury");
         require(governance != address(0), "MarketplaceV2: zero governance");
@@ -56,7 +65,8 @@ contract AIModelMarketplaceV2 is AccessControl, Pausable, ReentrancyGuard {
         require(registry.getApproved(modelId) == address(this) || registry.isApprovedForAll(msg.sender, address(this)), "MarketplaceV2: approval required");
         require(price > 0, "MarketplaceV2: price is zero");
         require(activeListingByModel[modelId] == 0, "MarketplaceV2: model already listed");
-        listingId = _nextListingId++;
+        listingId = _nextListingId;
+        unchecked { _nextListingId++; }
         listings[listingId] = Listing(listingId, modelId, msg.sender, price, true);
         activeListingByModel[modelId] = listingId;
         emit ListingCreated(listingId, modelId, msg.sender, price);
@@ -64,10 +74,40 @@ contract AIModelMarketplaceV2 is AccessControl, Pausable, ReentrancyGuard {
 
     /// @notice Buy model access and credit seller, creator royalty, and treasury balances.
     function buyModel(uint256 listingId) external payable whenNotPaused nonReentrant {
+        _buyModel(listingId, msg.sender);
+    }
+
+    /// @notice Buy model access using an EIP-712 authorization signed by the buyer.
+    /// @dev The nonce and typed-data domain prevent replay across purchases,
+    /// chains, and marketplace deployments.
+    function buyModelWithAuthorization(
+        uint256 listingId,
+        address buyer,
+        uint256 deadline,
+        uint256 nonce,
+        bytes calldata signature
+    ) external payable whenNotPaused nonReentrant {
+        require(buyer != address(0), "MarketplaceV2: zero buyer");
+        require(block.timestamp <= deadline, "MarketplaceV2: authorization expired");
+        require(nonce == purchaseNonces[buyer], "MarketplaceV2: invalid authorization nonce");
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+            PURCHASE_AUTHORIZATION_TYPEHASH,
+            listingId,
+            buyer,
+            nonce,
+            deadline
+        )));
+        require(ECDSA.recover(digest, signature) == buyer, "MarketplaceV2: invalid authorization signature");
+        purchaseNonces[buyer] = nonce + 1;
+        emit PurchaseAuthorizationUsed(buyer, listingId, nonce, deadline);
+        _buyModel(listingId, buyer);
+    }
+
+    function _buyModel(uint256 listingId, address buyer) internal {
         Listing storage listing = listings[listingId];
         require(listing.active, "MarketplaceV2: inactive listing");
         require(msg.value == listing.price, "MarketplaceV2: incorrect payment");
-        require(msg.sender != listing.seller, "MarketplaceV2: seller cannot buy");
+        require(buyer != listing.seller, "MarketplaceV2: seller cannot buy");
         require(registry.ownerOf(listing.modelId) == listing.seller, "MarketplaceV2: ownership changed");
         listing.active = false;
         activeListingByModel[listing.modelId] = 0;
@@ -79,7 +119,7 @@ contract AIModelMarketplaceV2 is AccessControl, Pausable, ReentrancyGuard {
         emit PaymentCredited(listing.seller, sellerAmount, 1);
         if (royaltyAmount > 0) { pendingWithdrawals[royaltyReceiver] += royaltyAmount; emit PaymentCredited(royaltyReceiver, royaltyAmount, 2); }
         if (platformAmount > 0) { pendingTreasury += platformAmount; emit PaymentCredited(platformTreasury, platformAmount, 3); }
-        emit ModelPurchased(listingId, listing.modelId, msg.sender, msg.value);
+        emit ModelPurchased(listingId, listing.modelId, buyer, msg.value);
     }
 
     /// @notice Cancel an active listing. Governance can cancel listings whose ownership changed.

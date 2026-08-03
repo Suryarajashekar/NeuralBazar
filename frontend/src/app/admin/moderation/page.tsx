@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../components/AuthProvider";
 import { apiFetch, shortenAddress } from "../../../lib/api";
+import { isModerator } from "../../../lib/identity";
 
 type ModelStatus = "active" | "hidden" | "removed";
 type ReportStatus = "open" | "resolved" | "dismissed";
@@ -87,7 +88,7 @@ export default function ModerationPage() {
     apiFetch<{ user: { role: string } }>("/api/auth/me")
       .then(({ user }) => {
         if (!active) return;
-        if (user.role !== "admin" && user.role !== "moderator") {
+        if (!isModerator(user.role)) {
           router.replace("/dashboard");
           return;
         }

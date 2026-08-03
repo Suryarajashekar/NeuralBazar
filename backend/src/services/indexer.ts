@@ -22,10 +22,10 @@ export async function syncChainOnce() {
     const creatorAddress = String(creator).toLowerCase();
     await query("INSERT INTO users (wallet_address) VALUES ($1) ON CONFLICT DO NOTHING", [creatorAddress]);
     await query(
-      `INSERT INTO models (model_id_onchain, creator_wallet, ipfs_hash, metadata_uri, title, description, category, tags, license)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO models (model_id_onchain, creator_wallet, ipfs_hash, metadata_uri, title, description, category, tags, license, status, security_status, verified_safe)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', 'pending', false)
        ON CONFLICT (model_id_onchain) DO UPDATE SET ipfs_hash = EXCLUDED.ipfs_hash, metadata_uri = EXCLUDED.metadata_uri, updated_at = now()`,
-      [Number(modelId), creatorAddress, String(ipfsHash), String(metadataURI), `Model #${modelId}`, "Newly registered AI model", "Other", [], "Custom"]
+      [String(modelId), creatorAddress, String(ipfsHash), String(metadataURI), `Model #${modelId}`, "Newly registered AI model", "Other", [], "Custom"]
     );
   }
 
@@ -37,20 +37,20 @@ export async function syncChainOnce() {
       `INSERT INTO listings (listing_id_onchain, model_id_onchain, seller_wallet, price_wei)
        VALUES ($1, $2, lower($3), $4)
        ON CONFLICT (listing_id_onchain) DO UPDATE SET price_wei = EXCLUDED.price_wei, active = true, updated_at = now()`,
-      [Number(listingId), Number(modelId), String(seller), String(price)]
+      [String(listingId), String(modelId), String(seller), String(price)]
     );
   }
 
   const cancelled = await marketplace.queryFilter(marketplace.filters.ListingCancelled(), fromBlock, toBlock);
   for (const event of cancelled) {
     const log = event as ethers.EventLog;
-    await query("UPDATE listings SET active = false, updated_at = now() WHERE listing_id_onchain = $1", [Number(log.args[0])]);
+    await query("UPDATE listings SET active = false, updated_at = now() WHERE listing_id_onchain = $1", [String(log.args[0])]);
   }
 
   const priceUpdates = await marketplace.queryFilter(marketplace.filters.ListingPriceUpdated(), fromBlock, toBlock);
   for (const event of priceUpdates) {
     const log = event as ethers.EventLog;
-    await query("UPDATE listings SET price_wei = $2, updated_at = now() WHERE listing_id_onchain = $1", [Number(log.args[0]), String(log.args[1])]);
+    await query("UPDATE listings SET price_wei = $2, updated_at = now() WHERE listing_id_onchain = $1", [String(log.args[0]), String(log.args[1])]);
   }
 
   const purchases = await marketplace.queryFilter(marketplace.filters.ModelPurchased(), fromBlock, toBlock);
@@ -61,12 +61,12 @@ export async function syncChainOnce() {
     await query(
       `INSERT INTO purchases (buyer_wallet, model_id_onchain, listing_id_onchain, price_paid_wei, tx_hash)
        VALUES (lower($1), $2, $3, $4, $5) ON CONFLICT (tx_hash) DO NOTHING`,
-      [String(buyer), Number(modelId), Number(listingId), String(price), txHash]
+      [String(buyer), String(modelId), String(listingId), String(price), txHash]
     );
-    await query("UPDATE listings SET active = false, updated_at = now() WHERE listing_id_onchain = $1", [Number(listingId)]);
+    await query("UPDATE listings SET active = false, updated_at = now() WHERE listing_id_onchain = $1", [String(listingId)]);
     if (config.accessManagerAddress && config.backendSignerPrivateKey) {
       const access = new ethers.Contract(config.accessManagerAddress, accessAbi, getBackendSigner());
-      const tx = await access.grantAccess(String(buyer), Number(modelId));
+      const tx = await access.grantAccess(String(buyer), String(modelId));
       await tx.wait();
     }
   }

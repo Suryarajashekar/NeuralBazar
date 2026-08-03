@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../components/AuthProvider";
+import { isSuperAdmin } from "../../../lib/identity";
 import { WalletButton } from "../../../components/WalletButton";
 
 export default function AdminLoginPage() {
@@ -11,7 +12,7 @@ export default function AdminLoginPage() {
   const { user, ready, logout } = useAuth();
 
   useEffect(() => {
-    if (ready && user?.role === "admin") router.replace("/admin");
+    if (ready && isSuperAdmin(user?.role)) router.replace("/admin");
   }, [ready, router, user]);
 
   if (!ready) {

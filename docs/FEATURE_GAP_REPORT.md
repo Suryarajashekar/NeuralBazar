@@ -13,36 +13,37 @@ The current application covers the core classroom flow: wallet sign-in, role-awa
 - Admin user role management and moderation screens.
 - Ratings and reports.
 - Local Hardhat deployment path for demos without Sepolia ETH.
+- Enterprise upload security gate with SHA-256, heuristic/ClamAV scanning, encrypted staging, Ed25519 signed manifests, provenance, risk scores, and verified-safe publication enforcement.
+- Verified-purchase review metadata, creator reputation, safe benchmark queue/leaderboard, semantic discovery baseline, version records, wishlist/collection/follow/notification primitives, analytics, Prometheus health/metrics, organizations, and research artifact registries.
 
 ## Missing or incomplete for an enterprise release
 
 ### Trust and AI integrity
 
-- SHA-256 model provenance and reproducible upload manifests.
-- Malware, unsafe serialization, archive traversal, and dependency scanning.
-- Signed model cards and creator attestations.
-- Versioned model releases with immutable parent/version relationships.
-- Benchmark result verification and reproducible evaluation metadata.
+- Full framework-aware malware/dependency scanning and isolated inference execution.
+- Signed model-card attestations with external legal/ownership verification.
+- Versioned releases tied to a dedicated on-chain version registry.
+- Completed benchmark measurements from an independently reviewed sandbox.
 - Optional watermarking, stolen-model similarity checks, and explainability artifacts.
 
 ### Marketplace
 
 - Encrypted/private asset delivery with expiring signed URLs.
-- Wishlist, follows, collections, notifications, recommendations, and trending feeds.
+- Rich frontend screens for all wishlist/follow/collection/notification/recommendation feeds.
 - Purchase receipts, license acceptance records, refunds/disputes, and tax/accounting exports.
 - Creator payout ledger and royalty reconciliation.
 - Version-aware ratings and verified-purchase badges.
 
 ### Enterprise
 
-- Organizations, team membership, delegated wallets, and granular permissions.
+- SSO/SAML/OIDC, delegated wallets, quota enforcement, and billing reconciliation.
 - API key management, request signing, usage quotas, and usage billing.
 - Audit log, login/device history, data export, retention, and deletion workflows.
 - SSO/SAML/OIDC if institutional users are required.
 
 ### Research and operations
 
-- Benchmark leaderboards and reproducible experiment records.
+- Benchmark leaderboards exist; reproducible experiment evidence still needs external runners and signed artifacts.
 - Federated learning coordination, differential privacy, or zero-knowledge verification (research scope, not a quick UI feature).
 - Prometheus/Grafana dashboards, distributed tracing, Sentry-equivalent error tracking, and on-call alerting.
 - Separate indexer, scan worker, notification worker, and scheduled reconciliation jobs.

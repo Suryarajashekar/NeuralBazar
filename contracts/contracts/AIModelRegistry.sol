@@ -26,6 +26,7 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
         string metadataURI
     );
     event MetadataUpdated(uint256 indexed modelId, string newURI);
+    event ModelMetadataUpdated(uint256 indexed modelId, address indexed account, string previousURI, string newURI);
     event ModelRoyaltyUpdated(uint256 indexed modelId, uint96 royaltyBps);
 
     constructor() ERC721("NeuralBazaar AI Model", "NAIM") Ownable(msg.sender) {}
@@ -40,7 +41,8 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
         require(bytes(metadataURI).length > 0, "Registry: empty metadata URI");
         require(royaltyBps <= MAX_ROYALTY_BPS, "Registry: royalty too high");
 
-        modelId = _nextModelId++;
+        modelId = _nextModelId;
+        unchecked { _nextModelId++; }
         _safeMint(msg.sender, modelId);
         _models[modelId] = Model(msg.sender, ipfsHash, metadataURI, royaltyBps);
         _setTokenRoyalty(modelId, msg.sender, royaltyBps);
@@ -54,8 +56,10 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
         require(bytes(newURI).length > 0, "Registry: empty URI");
         Model storage model = _models[modelId];
         require(msg.sender == model.creator || msg.sender == ownerOf(modelId), "Registry: not authorized");
+        string memory previousURI = model.metadataURI;
         model.metadataURI = newURI;
         emit MetadataUpdated(modelId, newURI);
+        emit ModelMetadataUpdated(modelId, msg.sender, previousURI, newURI);
     }
 
     /// @notice Transfer model ownership while preserving original creator and royalty data.

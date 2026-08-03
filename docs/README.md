@@ -8,6 +8,14 @@
 - [Enterprise roadmap](./ENTERPRISE_ROADMAP.md)
 - [Deployment notes](./DEPLOYMENT_NOTES.md)
 - [Migration guide](./MIGRATION_GUIDE.md)
+- [Enterprise implementation report](./ENTERPRISE_IMPLEMENTATION_REPORT.md)
+- [AI benchmark report](./AI_BENCHMARK_REPORT.md)
+- [Performance and scalability report](./PERFORMANCE_SCALABILITY_REPORT.md)
+- [Research contribution report](./RESEARCH_CONTRIBUTION_REPORT.md)
+- [API security reference](./API_SECURITY_REFERENCE.md)
+- [Identity and RBAC](./IDENTITY_RBAC.md)
+- [Identity API](./IDENTITY_API.md)
+- [Identity security audit](./IDENTITY_AUDIT_REPORT.md)
 
 The reports are based on a static review of the repository and local verification. They are not a substitute for an independent smart-contract audit or a production penetration test.
 
@@ -95,7 +103,7 @@ npm run seed
 npm run dev
 ```
 
-Set `ADMIN_WALLET_ADDRESS` in `backend/.env` to the exact lowercase wallet that should control the platform. That wallet is promoted to `admin` when it signs in; all other new wallets default to `buyer`. For a local classroom demo, leaving it blank preserves the first-admin bootstrap behavior, but do not leave it blank in production because an unknown first visitor could claim the initial admin role. The `/admin/login` page and every `/api/admin/*` endpoint require the current database role to be `admin`.
+Set `ADMIN_WALLET_ADDRESS` in `backend/.env` to the exact lowercase wallet that should control the platform. That wallet is promoted to `super_admin` when it signs in; all other new wallets receive a stable public username and default to `customer`. Legacy `admin`/`buyer` rows remain compatible. For a local classroom demo, leaving it blank preserves the first-admin bootstrap behavior, but do not leave it blank in production because an unknown first visitor could claim the initial admin role. The `/admin/login` page and permission-gated `/api/admin/*` endpoints enforce the current database role server-side.
 
 The indexer polls every 15 seconds and:
 
@@ -153,6 +161,15 @@ npx hardhat run scripts/deploy-v2.ts --network sepolia
 ```
 
 Set `REGISTRY_ADDRESS`, `GOVERNANCE_MULTISIG`, `PLATFORM_TREASURY`, and `BACKEND_GRANTER_ADDRESS` first. The V2 marketplace uses role-based governance, one active listing per model, ownership checks, and pull-payment balances. Configure the backend with the V2 marketplace/access addresses and the private key for the granter wallet. Keep the multisig signer out of the backend.
+
+For a production-style deployment with an explicit timelock and emergency pause separation, use the additive secure path:
+
+```powershell
+cd contracts
+npx hardhat run scripts/deploy-secure.ts --network sepolia
+```
+
+Set `GOVERNANCE_MULTISIG`, `PLATFORM_TREASURY`, `REGISTRY_ADDRESS`, `BACKEND_GRANTER_ADDRESS`, `EMERGENCY_PAUSER_ADDRESS`, and `TIMELOCK_DELAY_SECONDS` first. The script deploys `NeuralBazaarTimelock`, `AIModelMarketplaceSecure`, and `AccessManagerV2`. Governance proposals must pass through the timelock; the emergency-pauser key can pause immediately but cannot unpause.
 
 ## 7. Deploy to Render and Vercel
 
@@ -242,11 +259,11 @@ For local deployment, leave `PLATFORM_TREASURY` blank in `contracts/.env` so it 
 
 ### Contracts
 
-`PRIVATE_KEY`, `RPC_URL`, `ETHERSCAN_API_KEY`, `PLATFORM_TREASURY`
+`PRIVATE_KEY`, `RPC_URL`, `ETHERSCAN_API_KEY`, `PLATFORM_TREASURY`, `GOVERNANCE_MULTISIG`, `BACKEND_GRANTER_ADDRESS`, `EMERGENCY_PAUSER_ADDRESS`, `TIMELOCK_DELAY_SECONDS`
 
 ### Backend
 
-`PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL`, `ADMIN_WALLET_ADDRESS`, `BACKEND_PUBLIC_URL`, `RPC_URL`, `CHAIN_ID`, `INDEXER_START_BLOCK`, `REGISTRY_ADDRESS`, `MARKETPLACE_ADDRESS`, `ACCESS_MANAGER_ADDRESS`, `BACKEND_SIGNER_PRIVATE_KEY`, `PINATA_JWT`, `PINATA_GATEWAY_JWT`, `PINATA_GATEWAY`, `MODEL_ENCRYPTION_KEY`, `CLAMAV_PATH`, `MAX_UPLOAD_BYTES`, `UPLOAD_TEMP_DIR`
+`PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `SESSION_IDLE_TIMEOUT_MINUTES`, `TRUST_PROXY`, `REQUEST_SIGNING_MAX_SKEW_SECONDS`, `API_KEYS`, `FRONTEND_URL`, `ADMIN_WALLET_ADDRESS`, `BACKEND_PUBLIC_URL`, `RPC_URL`, `CHAIN_ID`, `INDEXER_START_BLOCK`, `REGISTRY_ADDRESS`, `MARKETPLACE_ADDRESS`, `ACCESS_MANAGER_ADDRESS`, `BACKEND_SIGNER_PRIVATE_KEY`, `PINATA_JWT`, `PINATA_GATEWAY_JWT`, `PINATA_GATEWAY`, `MODEL_ENCRYPTION_KEY`, `CLAMAV_PATH`, `MODEL_SIGNING_PRIVATE_KEY`, `MODEL_SIGNING_PUBLIC_KEY`, `MODEL_SECURITY_SCORE_THRESHOLD`, `BENCHMARK_RUNNER_PATH`, `EMBEDDING_MODEL`, `MAX_UPLOAD_BYTES`, `UPLOAD_TEMP_DIR`
 
 ### Frontend
 

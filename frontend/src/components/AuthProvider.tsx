@@ -2,9 +2,11 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
-import { API_URL, CHAIN } from "../lib/config";
+import { CHAIN } from "../lib/config";
+import { apiFetch } from "../lib/api";
+import { AppRole } from "../lib/identity";
 
-export type User = { id: string; wallet_address: string; role: "buyer" | "creator" | "moderator" | "admin"; account_type?: "customer" | "developer"; username?: string | null; bio?: string; avatar_url?: string | null };
+export type User = { id: string; wallet_address: string; role: AppRole; account_type?: "customer" | "developer"; username?: string | null; display_name?: string; bio?: string; avatar_url?: string | null; banner_url?: string | null; ens_name?: string | null; website?: string | null; github_url?: string | null; linkedin_url?: string | null; twitter_url?: string | null; organization?: string | null; location?: string | null; favorite_categories?: string[]; profile_visibility?: { profile?: boolean; wallet?: boolean }; badges?: string[]; verified?: boolean; account_status?: string; created_at?: string; last_active_at?: string | null };
 type AuthContextValue = { user: User | null; loading: boolean; ready: boolean; error: string | null; connectWallet: () => Promise<void>; logout: () => void };
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -44,13 +46,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("neuralbazaar_token");
     localStorage.removeItem("neuralbazaar_user");
     let cancelled = false;
-    fetch(`${API_URL}/api/auth/me`, { credentials: "include", cache: "no-store" })
-      .then(async response => {
-        const payload = await response.json().catch(() => ({})) as { user?: User };
-        if (!response.ok) return;
-        if (!cancelled) {
-          setUser(payload.user ?? null);
-        }
+    apiFetch<{ user: User }>("/api/auth/me")
+      .then(payload => {
+        if (!cancelled) setUser(payload.user ?? null);
       })
       .catch(() => {
         if (!cancelled) {
@@ -79,21 +77,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // MetaMask account changed. Remove the previous account from the UI and
       // expire its server session before authenticating the new wallet.
       setUser(null);
-      void fetch(`${API_URL}/api/auth/logout`, { method: "POST", credentials: "include" });
+      void apiFetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     }
   }, [address, user]);
 
   async function authenticate(walletAddress: string) {
     setLoading(true); setError(null);
     try {
-      const nonceResponse = await fetch(`${API_URL}/api/auth/nonce`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ address: walletAddress }) });
-      const { nonce } = await nonceResponse.json() as { nonce: string };
+      const { nonce } = await apiFetch<{ nonce: string }>("/api/auth/nonce", { method: "POST", body: JSON.stringify({ address: walletAddress }) });
       const message = `${window.location.host} wants you to sign in with your Ethereum account:\n${walletAddress}\n\nSign in to NeuralBazaar.\n\nURI: ${window.location.origin}\nVersion: 1\nChain ID: ${CHAIN.id}\nNonce: ${nonce}\nIssued At: ${new Date().toISOString()}`;
       const signature = await signMessageAsync({ message });
       const preferredAccountType = sessionStorage.getItem("neuralbazaar_account_type") || "customer";
-      const response = await fetch(`${API_URL}/api/auth/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ message, signature, preferredAccountType }) });
-      const payload = await response.json() as { user: User; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Wallet verification failed");
+      const payload = await apiFetch<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ message, signature, preferredAccountType }) });
       if (currentAddressRef.current?.toLowerCase() !== walletAddress.toLowerCase()) return;
       setUser(payload.user);
     } catch (authError) { setError(readableAuthError(authError)); }
@@ -123,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   function logout() {
-    void fetch(`${API_URL}/api/auth/logout`, { method: "POST", credentials: "include" });
+    void apiFetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     disconnect();
     setUser(null);
   }

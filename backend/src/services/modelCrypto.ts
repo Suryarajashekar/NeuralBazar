@@ -44,12 +44,14 @@ export async function encryptStagedFile(inputPath: string, outputPath: string) {
   const cipher = createCipheriv("aes-256-gcm", dataKey, fileIv);
   const header = Buffer.concat([MAGIC, fileIv]);
   const digest = createHash("sha256");
+  const sourceDigest = createHash("sha256");
   let byteLength = header.length;
   digest.update(header);
 
   const encryptor = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       try {
+        sourceDigest.update(chunk);
         const encrypted = cipher.update(chunk);
         digest.update(encrypted);
         byteLength += encrypted.length;
@@ -73,7 +75,7 @@ export async function encryptStagedFile(inputPath: string, outputPath: string) {
   const output = createWriteStream(outputPath);
   output.write(header);
   await pipeline(createReadStream(inputPath), encryptor, output);
-  return { wrappedKey: wrapDataKey(dataKey), encryptionIv: toBase64(fileIv), sha256: digest.digest("hex"), byteLength };
+  return { wrappedKey: wrapDataKey(dataKey), encryptionIv: toBase64(fileIv), sha256: digest.digest("hex"), sourceSha256: sourceDigest.digest("hex"), byteLength };
 }
 
 export function createDecryptTransform(dataKey: Buffer, expectedIv: Buffer) {

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { shortenAddress } from "../lib/api";
+import type { SecurityReport } from "./SecurityBadge";
 
-export type Model = { id: string; model_id_onchain?: number; creator_wallet: string; creator_name?: string; title: string; description: string; category: string; tags: string[]; license: string; rating?: number | string; rating_count?: number; status?: string; price_eth?: string; price_wei?: string; listing_id_onchain?: number; listing_active?: boolean; ipfs_hash?: string; metadata_uri?: string; developer_rating?: number | string };
+export type Model = { id: string; model_id_onchain?: number; creator_wallet: string; creator_name?: string; title: string; description: string; category: string; tags: string[]; license: string; rating?: number | string; rating_count?: number; status?: string; price_eth?: string; price_wei?: string; listing_id_onchain?: number; listing_active?: boolean; ipfs_hash?: string; metadata_uri?: string; developer_rating?: number | string; security_score?: number | string | null; security_status?: string | null; verified_safe?: boolean; security_report?: SecurityReport; provenance?: Record<string, unknown>; reputation_score?: number | string; trust_score?: number | string; creator_verified?: boolean };
 
 export function ModelCard({ model }: { model: Model }) {
   const rating = Number(model.rating || 0);

@@ -4,9 +4,9 @@
 
 | Component | Current behavior | Impact | Target direction |
 |---|---|---|---|
-| Upload API | Buffers a model in Node memory and pins synchronously. | High latency and memory exhaustion under concurrent uploads. | Direct-to-staging upload, streaming hash, asynchronous scan/pin job, status polling. |
-| Public model search | Uses relational filtering and `ILIKE` without cursor pagination/full-text search. | Latency grows with catalog size and deep pages become expensive. | PostgreSQL full-text/trigram indexes, keyset pagination, cached popular queries. |
-| Indexer | Runs in the web process; scans one unbounded `fromBlock` to `toBlock` range. | RPC limits, duplicate workers after horizontal scaling, slow restart/replay. | Dedicated worker, bounded ranges, finality window, job/outbox records. |
+| Upload API | Disk-stages and streams the source hash/encryption, then scans and pins synchronously. | Large scans/pinning still occupy a request and need queueing at scale. | Separate durable scan/pin queue with status polling and object-storage staging. |
+| Public model search | Existing compatibility route uses relational filtering; the additive semantic route uses PostgreSQL full-text plus bounded local-vector ranking. | Catalog-scale relevance and deep-page costs still need cursor pagination. | Keyset pagination, shared cache, and a reviewed embedding provider. |
+| Indexer | Runs as a separate worker but still scans an unbounded `fromBlock` to `toBlock` range. | RPC limits, reorg handling, and replay recovery remain operational risks. | Finality window, bounded ranges, event identity, job/outbox records. |
 | Purchase access | Sends one access-grant transaction at a time from the indexer. | A single failed grant delays the whole block and increases wallet nonce contention. | Durable grant queue, retries with backoff, dead-letter queue, reconciliation job. |
 | Database | Search, ratings, admin reports, and analytics share the primary connection pool. | Noisy-neighbor behavior and connection pressure. | Query-specific indexes, pool budgets, read replica for search/analytics, pre-aggregates. |
 | Frontend | Client-side data fetches lack a shared cache and request cancellation strategy. | Repeated navigation fetches and slower perceived transitions. | TanStack Query or equivalent, stale-time policies, pagination, route-level loading states. |

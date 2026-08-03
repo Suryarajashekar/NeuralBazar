@@ -1,0 +1,9 @@
+{
+  "title": "NeuralBazaar API",
+  "schemaVersion": 39,
+  "panels": [
+    {"type": "timeseries", "title": "Requests", "targets": [{"expr": "sum(rate(neuralbazaar_http_requests_total[5m]))"}]},
+    {"type": "timeseries", "title": "Errors", "targets": [{"expr": "sum(rate(neuralbazaar_http_errors_total[5m]))"}]},
+    {"type": "stat", "title": "Uptime", "targets": [{"expr": "neuralbazaar_uptime_seconds"}]}
+  ]
+}

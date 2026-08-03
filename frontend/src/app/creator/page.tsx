@@ -9,6 +9,7 @@ import { useAuth } from "../../components/AuthProvider";
 import { apiFetch } from "../../lib/api";
 import { CONTRACTS } from "../../lib/config";
 import { registryAbi, marketplaceAbi } from "../../lib/abis";
+import { isCreator } from "../../lib/identity";
 
 export default function CreatorPage() {
   const { user, connectWallet, ready } = useAuth();
@@ -24,7 +25,7 @@ export default function CreatorPage() {
     try { const data = await apiFetch<{ models: Model[] }>("/api/models/mine"); setOwnedModels(data.models); } catch { setOwnedModels([]); }
   }
 
-  useEffect(() => { setOwnedModels([]); if (user && (user.role === "creator" || user.role === "admin")) void loadOwnedModels(); }, [user]);
+  useEffect(() => { setOwnedModels([]); if (user && isCreator(user.role)) void loadOwnedModels(); }, [user]);
 
   async function cancelListing(listingId: number) {
     setBusy(true); setError("");
@@ -35,12 +36,12 @@ export default function CreatorPage() {
     event.preventDefault();
     const formElement = event.currentTarget;
     if (!user) { await connectWallet(); return; }
-    if (user.role !== "creator" && user.role !== "admin") { setError("Your account needs the Creator role before publishing. Ask an admin to assign it."); return; }
+    if (!isCreator(user.role)) { setError("Your account needs the Creator role before publishing. Ask an admin to assign it."); return; }
     if (!file) { setError("Select a model archive first."); return; }
     setBusy(true); setError(""); setStatus("Uploading model to IPFS...");
     try {
       const form = new FormData(); form.append("file", file);
-      const upload = await apiFetch<{ ipfsHash: string; uri: string }>("/api/uploads/model", { method: "POST", body: form });
+      const upload = await apiFetch<{ ipfsHash: string; uri: string; securityScore?: number; verifiedSafe?: boolean }>("/api/uploads/model", { method: "POST", body: form });
       const formData = new FormData(formElement);
       const title = String(formData.get("title")); const description = String(formData.get("description")); const category = String(formData.get("category")); const license = String(formData.get("license")); const price = String(formData.get("price")); const royalty = Number(formData.get("royalty")); const tags = String(formData.get("tags")).split(",").map(tag => tag.trim()).filter(Boolean);
       const metadata = await apiFetch<{ ipfsHash: string; uri: string }>("/api/uploads/metadata", { method: "POST", body: JSON.stringify({ name: title, description, category, tags, license, modelFile: upload.uri, createdAt: new Date().toISOString() }) });
@@ -57,7 +58,7 @@ export default function CreatorPage() {
       const listingHash = await writeContractAsync({ address: CONTRACTS.marketplace, abi: marketplaceAbi, functionName: "createListing", args: [BigInt(modelId), parseEther(price)] });
       await publicClient.waitForTransactionReceipt({ hash: listingHash });
       await apiFetch("/api/models", { method: "POST", body: JSON.stringify({ modelIdOnchain: modelId, ipfsHash: upload.ipfsHash, metadataUri: metadata.uri, title, description, category, tags, license }) });
-      setStatus(`Published successfully as model #${modelId}. The indexer will make it discoverable shortly.`); formElement.reset(); setFile(null); await loadOwnedModels();
+      setStatus(`Published successfully as model #${modelId}. Verified safe security score: ${upload.securityScore ?? "—"}/100. The indexer will make it discoverable shortly.`); formElement.reset(); setFile(null); await loadOwnedModels();
     } catch (e) { setError(e instanceof Error ? e.message : "Publishing failed"); setStatus(""); } finally { setBusy(false); }
   }
 

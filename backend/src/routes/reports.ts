@@ -1,12 +1,17 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { query } from "../db";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { routeIdSchema, validateRequest } from "../middleware/validation";
 
 const router = Router();
-router.post("/", requireAuth, async (req, res, next) => {
+const reportRateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
+router.post("/", requireAuth, reportRateLimit, async (req, res, next) => {
   try {
     const body = z.object({ modelId: z.string().uuid(), reason: z.string().min(5).max(200), notes: z.string().max(1000).default("") }).parse(req.body);
+    const model = await query("SELECT 1 FROM models WHERE id = $1", [body.modelId]);
+    if (!model.rows[0]) return res.status(404).json({ error: "Model not found" });
     const result = await query("INSERT INTO reports (model_id, reporter_wallet, reason, notes) VALUES ($1, lower($2), $3, $4) RETURNING *", [body.modelId, req.user!.address, body.reason, body.notes]);
     res.status(201).json({ report: result.rows[0] });
   } catch (error) { next(error); }
@@ -19,7 +24,7 @@ router.get("/", requireAuth, requireRole("moderator", "admin"), async (_req, res
   } catch (error) { next(error); }
 });
 
-router.patch("/:id", requireAuth, requireRole("moderator", "admin"), async (req, res, next) => {
+router.patch("/:id", requireAuth, requireRole("moderator", "admin"), validateRequest({ params: routeIdSchema }), async (req, res, next) => {
   try {
     const body = z.object({ status: z.enum(["open", "reviewing", "resolved", "dismissed"]), notes: z.string().max(1000).optional() }).parse(req.body);
     const result = await query("UPDATE reports SET status = $2, notes = COALESCE($3, notes), updated_at = now() WHERE id::text = $1 RETURNING *", [req.params.id, body.status, body.notes]);

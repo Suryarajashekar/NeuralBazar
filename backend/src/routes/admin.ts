@@ -2,6 +2,7 @@ import { Request, Router } from "express";
 import { z } from "zod";
 import { query, withTransaction } from "../db";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { config } from "../config";
 
 const router = Router();
 const moderationStatusSql = "CASE WHEN m.status = 'removed' THEN 'removed' WHEN m.status IN ('flagged', 'suspended') THEN 'hidden' ELSE 'active' END";
@@ -9,18 +10,21 @@ const moderationStatusSql = "CASE WHEN m.status = 'removed' THEN 'removed' WHEN 
 function getPagination(req: Request) {
   const pageValue = Number.parseInt(String(req.query.page ?? "1"), 10);
   const limitValue = Number.parseInt(String(req.query.limit ?? "10"), 10);
-  const page = Number.isFinite(pageValue) ? Math.max(1, pageValue) : 1;
-  const limit = Number.isFinite(limitValue) ? Math.min(50, Math.max(1, limitValue)) : 10;
+  const page = Number.isSafeInteger(pageValue) ? Math.min(10_000, Math.max(1, pageValue)) : 1;
+  const limit = Number.isSafeInteger(limitValue) ? Math.min(50, Math.max(1, limitValue)) : 10;
   return { page, limit, offset: (page - 1) * limit };
 }
 
 function queryText(req: Request, name: string) {
-  return String(req.query[name] ?? "").trim();
+  return String(req.query[name] ?? "").trim().slice(0, 200);
 }
 
-router.use(requireAuth, requireRole("admin", "moderator"));
+// Keep authentication at the router boundary, but authorize each legacy
+// route locally so the additive permission-based enterprise routes mounted
+// after this router remain reachable by support_admin identities.
+router.use(requireAuth);
 
-router.get("/models", async (req, res, next) => {
+router.get("/models", requireRole("admin", "moderator"), async (req, res, next) => {
   try {
     const { page, limit, offset } = getPagination(req);
     const status = queryText(req, "status");
@@ -56,7 +60,7 @@ router.get("/models", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.get("/reports", async (req, res, next) => {
+router.get("/reports", requireRole("admin", "moderator"), async (req, res, next) => {
   try {
     const { page, limit, offset } = getPagination(req);
     const status = queryText(req, "status");
@@ -79,10 +83,15 @@ router.get("/reports", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.patch("/models/:id", async (req, res, next) => {
+router.patch("/models/:id", requireRole("admin", "moderator"), async (req, res, next) => {
   try {
     const requestedStatus = z.enum(["active", "hidden", "removed"]).parse(req.body.status);
     const databaseStatus = requestedStatus === "active" ? "published" : requestedStatus === "hidden" ? "flagged" : "removed";
+    if (databaseStatus === "published") {
+      const verification = await query("SELECT verified_safe, security_status, security_score FROM models WHERE id::text = $1 OR model_id_onchain::text = $1", [req.params.id]);
+      const row = verification.rows[0];
+      if (!row || row.verified_safe !== true || row.security_status !== "verified_safe" || Number(row.security_score) < config.modelSecurityScoreThreshold) return res.status(409).json({ error: "Only a verified-safe model may be published" });
+    }
     const result = await query(
       "UPDATE models SET status = $2, updated_at = now() WHERE id::text = $1 OR model_id_onchain::text = $1 RETURNING id, model_id_onchain, title, status",
       [req.params.id, databaseStatus]
@@ -92,7 +101,7 @@ router.patch("/models/:id", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.patch("/reports/:id", async (req, res, next) => {
+router.patch("/reports/:id", requireRole("admin", "moderator"), async (req, res, next) => {
   try {
     const body = z.object({ status: z.enum(["open", "resolved", "dismissed"]), action: z.enum(["takedown_model"]).optional() }).parse(req.body);
     const result = await withTransaction(async client => {
@@ -114,14 +123,14 @@ router.get("/users", requireRole("admin"), async (_req, res, next) => {
 
 router.patch("/users/:id/role", requireRole("admin"), async (req, res, next) => {
   try {
-    const role = z.enum(["buyer", "creator", "moderator", "admin"]).parse(req.body.role);
-    if (req.params.id === req.user!.sub && role !== "admin") return res.status(400).json({ error: "You cannot remove your own admin access" });
+    const role = z.enum(["customer", "creator", "support_admin", "moderator", "super_admin", "buyer", "admin"]).parse(req.body.role);
+    if (req.params.id === req.user!.sub && !["admin", "super_admin"].includes(role)) return res.status(400).json({ error: "You cannot remove your own admin access" });
 
     const result = await withTransaction(async client => {
       const target = await client.query<{ id: string; role: string }>("SELECT id, role FROM users WHERE id::text = $1 FOR UPDATE", [req.params.id]);
       if (!target.rows[0]) return null;
-      if (target.rows[0].role === "admin" && role !== "admin") {
-        const admins = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM users WHERE role = 'admin'");
+      if (["admin", "super_admin"].includes(target.rows[0].role) && !["admin", "super_admin"].includes(role)) {
+        const admins = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM users WHERE role IN ('admin', 'super_admin')");
         if (Number(admins.rows[0].count) <= 1) {
           const error = new Error("The last admin cannot be demoted");
           (error as Error & { statusCode: number }).statusCode = 409;
