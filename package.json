@@ -1,0 +1,17 @@
+{
+  "name": "decentralized-ai-marketplace",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "npm@10.8.2",
+  "workspaces": ["frontend", "backend", "contracts"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace frontend\" \"npm run dev --workspace backend\"",
+    "build": "npm run build --workspace frontend && npm run build --workspace backend",
+    "lint": "npm run lint --workspace frontend && npm run lint --workspace backend",
+    "test:contracts": "npm run test --workspace contracts",
+    "compile:contracts": "npm run compile --workspace contracts"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

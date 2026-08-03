@@ -1,0 +1,20 @@
+{
+  "name": "@neuralbazaar/contracts",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:sepolia": "hardhat run scripts/deploy.ts --network sepolia",
+    "verify:sepolia": "hardhat run scripts/verify.ts --network sepolia"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "5.6.1",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.22.18",
+    "solc": "0.8.26",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}
