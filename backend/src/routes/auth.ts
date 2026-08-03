@@ -150,9 +150,15 @@ router.delete("/sessions/:id", requireAuth, validateRequest({ params: z.object({
 
 router.get("/me", requireAuth, async (req, res, next) => {
   try {
-    const result = await query("SELECT id, wallet_address, role, account_type, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE wallet_address = $1", [req.user!.address]);
-    if (!result.rows[0]) return res.status(404).json({ error: "User not found" });
-    res.json({ user: result.rows[0] });
+    const user = await withTransaction(async client => {
+      const current = await client.query<{ id: string; wallet_address: string }>("SELECT id, wallet_address FROM users WHERE id = $1 FOR UPDATE", [req.user!.sub]);
+      if (!current.rows[0]) return null;
+      await ensureUsername(client, current.rows[0].id, current.rows[0].wallet_address);
+      const result = await client.query("SELECT id, wallet_address, role, account_type, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE id = $1", [req.user!.sub]);
+      return result.rows[0] ?? null;
+    });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({ user });
   } catch (error) { next(error); }
 });
 
