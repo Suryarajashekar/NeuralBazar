@@ -82,7 +82,7 @@ router.post("/verify", authRateLimit, validateRequest({ body: z.object({ message
       }
       await ensureUsername(client, identity.id, address);
       await client.query("UPDATE users SET last_login_at = now(), last_active_at = now() WHERE id = $1", [identity.id]);
-      const complete = await client.query("SELECT id, wallet_address, role, account_type, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, organization, location, favorite_categories, profile_visibility, badges, verified, created_at FROM users WHERE id = $1", [identity.id]);
+      const complete = await client.query("SELECT id, wallet_address, role, account_type, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, huggingface_url, linkedin_url, twitter_url, portfolio_url, skills, organization, location, favorite_categories, profile_visibility, badges, verified, created_at FROM users WHERE id = $1", [identity.id]);
       await client.query("DELETE FROM auth_nonces WHERE wallet_address = $1", [address]);
       return complete.rows[0];
     });
@@ -154,7 +154,7 @@ router.get("/me", requireAuth, async (req, res, next) => {
       const current = await client.query<{ id: string; wallet_address: string }>("SELECT id, wallet_address FROM users WHERE id = $1 FOR UPDATE", [req.user!.sub]);
       if (!current.rows[0]) return null;
       await ensureUsername(client, current.rows[0].id, current.rows[0].wallet_address);
-      const result = await client.query("SELECT id, wallet_address, role, account_type, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE id = $1", [req.user!.sub]);
+      const result = await client.query("SELECT id, wallet_address, role, account_type, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, huggingface_url, linkedin_url, twitter_url, portfolio_url, skills, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE id = $1", [req.user!.sub]);
       return result.rows[0] ?? null;
     });
     if (!user) return res.status(404).json({ error: "User not found" });

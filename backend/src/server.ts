@@ -24,10 +24,14 @@ import discoveryRoutes from "./routes/discovery";
 import versioningRoutes from "./routes/versioning";
 import marketplaceExtrasRoutes from "./routes/marketplaceExtras";
 import analyticsRoutes from "./routes/analytics";
+import accountRoutes from "./routes/account";
+import adminLimitedRoutes from "./routes/adminLimited";
 import organizationRoutes from "./routes/organizations";
 import researchRoutes from "./routes/research";
 import userRoutes from "./routes/users";
 import adminEnterpriseRoutes from "./routes/adminEnterprise";
+import assistantRoutes from "./routes/assistant";
+import playgroundRoutes from "./routes/playground";
 
 const app = express();
 app.set("trust proxy", config.trustProxy);
@@ -92,9 +96,10 @@ app.use((req, res, next) => {
     const organizationId = req.header("x-organization-id");
     const org = organizationId && /^[0-9a-f-]{36}$/i.test(organizationId) ? organizationId : null;
     const principal = (req as express.Request & { apiPrincipal?: { id?: string } }).apiPrincipal;
+    const promptKey = req.header("x-prompt-key")?.trim().slice(0, 120) || "";
     void query(
-      "INSERT INTO api_usage (organization_id, user_id, api_key_id, endpoint, status_code, latency_ms) VALUES ($1, $2, $3, $4, $5, $6)",
-      [org, user.sub, principal?.id ?? "", req.path.slice(0, 200), res.statusCode, Number(process.hrtime.bigint() - started) / 1_000_000]
+      "INSERT INTO api_usage (organization_id, user_id, api_key_id, endpoint, status_code, latency_ms, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+      [org, user.sub, principal?.id ?? "", req.path.slice(0, 200), res.statusCode, Number(process.hrtime.bigint() - started) / 1_000_000, { prompt: promptKey, method: req.method }]
     ).catch(error => console.error("API usage log failed", error));
   });
   next();
@@ -103,6 +108,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/profile", userRoutes);
 app.use("/api/models", modelRoutes);
+app.use("/api/assistant", assistantRoutes);
+app.use("/api/playground", playgroundRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/ratings", ratingRoutes);
 app.use("/api/reports", reportRoutes);
@@ -112,6 +119,8 @@ app.use("/api/reputation", reputationRoutes);
 app.use("/api/benchmarks", benchmarkRoutes);
 app.use("/api/versioning", versioningRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/account", accountRoutes);
+app.use("/api/admin/limited", adminLimitedRoutes);
 app.use("/api/organizations", organizationRoutes);
 app.use("/api/research", researchRoutes);
 app.use("/api", discoveryRoutes);

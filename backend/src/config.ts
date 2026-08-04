@@ -55,6 +55,8 @@ export const config = {
   rpcUrl: process.env.RPC_URL ?? "",
   registryAddress: process.env.REGISTRY_ADDRESS ?? "",
   marketplaceAddress: process.env.MARKETPLACE_ADDRESS ?? "",
+  licenseNFTAddress: process.env.LICENSE_NFT_ADDRESS ?? "",
+  reviewAnchorAddress: process.env.REVIEW_ANCHOR_ADDRESS ?? "",
   accessManagerAddress: process.env.ACCESS_MANAGER_ADDRESS ?? "",
   backendSignerPrivateKey: process.env.BACKEND_SIGNER_PRIVATE_KEY ?? "",
   pinataJwt: process.env.PINATA_JWT ?? "",

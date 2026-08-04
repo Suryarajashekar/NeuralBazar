@@ -1,19 +1,19 @@
 import { query } from "../db";
 
-export async function queueBenchmark(modelId: string, versionId?: string) {
+export async function queueBenchmark(modelId: string, versionId?: string, evaluationId?: string) {
   const result = await query(
-    `INSERT INTO benchmark_runs (model_id, version_id, status, dataset_name, runner_version)
-     VALUES ($1, $2, 'queued', 'NeuralBazaar evaluation suite', 'safe-metadata-v1') RETURNING *`,
-    [modelId, versionId ?? null]
+    `INSERT INTO benchmark_runs (model_id, version_id, evaluation_id, status, dataset_name, runner_version)
+     VALUES ($1, $2, $3, 'queued', 'NeuralBazaar evaluation suite', 'safe-metadata-v1') RETURNING *`,
+    [modelId, versionId ?? null, evaluationId ?? null]
   );
   return result.rows[0];
 }
 
 export async function processOneBenchmark() {
-  const claimed = await query<{ id: string; model_id: string }>(
+  const claimed = await query<{ id: string; model_id: string; evaluation_id: string | null }>(
     `UPDATE benchmark_runs SET status = 'running'
      WHERE id = (SELECT id FROM benchmark_runs WHERE status = 'queued' ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1)
-     RETURNING id, model_id`
+     RETURNING id, model_id, evaluation_id`
   );
   const run = claimed.rows[0];
   if (!run) return false;
@@ -31,9 +31,16 @@ export async function processOneBenchmark() {
        WHERE id = $1`,
       [run.id, artifact.rows[0]?.size ? Number(artifact.rows[0].size) : null, { execution: "isolated-runner-required", artifactIntegrity: "verified-by-upload-manifest", inferenceMetrics: null }, "Inference benchmark requires an explicitly configured isolated runner"]
     );
+    if (run.evaluation_id) {
+      await query("UPDATE evaluation_results SET status = 'not_available', completed_at = now() WHERE benchmark_run_id = $1", [run.id]);
+      await query("UPDATE evaluation_jobs SET status = 'not_available', completed_at = now() WHERE id = $1", [run.evaluation_id]);
+    }
   } catch (error) {
     await query("UPDATE benchmark_runs SET status = 'failed', error_message = $2, completed_at = now() WHERE id = $1", [run.id, error instanceof Error ? error.message.slice(0, 500) : "Benchmark failed"]);
+    if (run.evaluation_id) {
+      await query("UPDATE evaluation_results SET status = 'failed', completed_at = now() WHERE benchmark_run_id = $1", [run.id]);
+      await query("UPDATE evaluation_jobs SET status = 'failed', completed_at = now() WHERE id = $1", [run.evaluation_id]);
+    }
   }
   return true;
 }
-

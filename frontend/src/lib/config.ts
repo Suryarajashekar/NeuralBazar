@@ -12,8 +12,13 @@ function contractAddress(name: string) {
   if (process.env.NODE_ENV === "production" && value.toLowerCase() === zeroAddress) throw new Error(`${name} must be configured in production`);
   return value as Address;
 }
+function optionalContractAddress(name: string) {
+  return (process.env[name] || zeroAddress) as Address;
+}
 export const CONTRACTS = {
   registry: contractAddress("NEXT_PUBLIC_CONTRACT_ADDRESS_REGISTRY"),
   marketplace: contractAddress("NEXT_PUBLIC_CONTRACT_ADDRESS_MARKETPLACE"),
-  access: contractAddress("NEXT_PUBLIC_CONTRACT_ADDRESS_ACCESS")
+  access: contractAddress("NEXT_PUBLIC_CONTRACT_ADDRESS_ACCESS"),
+  licenseNFT: optionalContractAddress("NEXT_PUBLIC_CONTRACT_ADDRESS_LICENSE_NFT"),
+  reviewAnchor: optionalContractAddress("NEXT_PUBLIC_CONTRACT_ADDRESS_REVIEW_ANCHOR")
 };

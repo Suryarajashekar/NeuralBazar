@@ -28,7 +28,17 @@ router.use(requireAuth);
 router.get("/wishlist", async (req, res, next) => {
   try {
     const userId = sessionId(req, res); if (!userId) return;
-    const result = await query("SELECT w.created_at, m.* FROM wishlists w JOIN models m ON m.id = w.model_id WHERE w.user_id = $1 ORDER BY w.created_at DESC", [userId]);
+    const result = await query(`SELECT w.created_at, m.*, l.listing_id_onchain, l.price_wei, to_char(l.price_wei / 1000000000000000000.0, 'FM999999990.########') AS price_eth,
+                                       COALESCE(u.username, substring(m.creator_wallet, 1, 10)) AS creator_name,
+                                       COALESCE(u.verified, false) AS creator_verified,
+                                       COALESCE(ROUND(AVG(CASE WHEN r.target_type = 'model' THEN r.score END)::numeric, 1), 0) AS rating
+                                FROM wishlists w JOIN models m ON m.id = w.model_id
+                                LEFT JOIN users u ON lower(u.wallet_address) = lower(m.creator_wallet)
+                                LEFT JOIN listings l ON l.model_id_onchain = m.model_id_onchain AND l.active = true
+                                LEFT JOIN ratings r ON r.target_key = m.id::text
+                                WHERE w.user_id = $1
+                                GROUP BY w.created_at, m.id, u.username, u.verified, l.listing_id_onchain, l.price_wei
+                                ORDER BY w.created_at DESC`, [userId]);
     res.json({ models: result.rows });
   } catch (error) { next(error); }
 });

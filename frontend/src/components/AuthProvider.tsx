@@ -6,7 +6,7 @@ import { CHAIN } from "../lib/config";
 import { apiFetch } from "../lib/api";
 import { AppRole } from "../lib/identity";
 
-export type User = { id: string; wallet_address: string; role: AppRole; account_type?: "customer" | "developer"; username?: string | null; display_name?: string; bio?: string; avatar_url?: string | null; banner_url?: string | null; ens_name?: string | null; website?: string | null; github_url?: string | null; linkedin_url?: string | null; twitter_url?: string | null; organization?: string | null; location?: string | null; favorite_categories?: string[]; profile_visibility?: { profile?: boolean; wallet?: boolean }; badges?: string[]; verified?: boolean; account_status?: string; created_at?: string; last_active_at?: string | null };
+export type User = { id: string; wallet_address: string; role: AppRole; account_type?: "customer" | "developer"; username?: string | null; display_name?: string; bio?: string; avatar_url?: string | null; banner_url?: string | null; ens_name?: string | null; website?: string | null; github_url?: string | null; huggingface_url?: string | null; linkedin_url?: string | null; twitter_url?: string | null; portfolio_url?: string | null; skills?: string[]; organization?: string | null; location?: string | null; favorite_categories?: string[]; profile_visibility?: { profile?: boolean; wallet?: boolean }; badges?: string[]; verified?: boolean; account_status?: string; created_at?: string; last_active_at?: string | null };
 type AuthContextValue = { user: User | null; loading: boolean; ready: boolean; error: string | null; connectWallet: () => Promise<void>; logout: () => void };
 const AuthContext = createContext<AuthContextValue | null>(null);
 

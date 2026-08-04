@@ -19,17 +19,20 @@ const profileSchema = z.object({
   githubUrl: z.string().url().max(2048).optional(),
   linkedinUrl: z.string().url().max(2048).optional(),
   twitterUrl: z.string().url().max(2048).optional(),
+  huggingfaceUrl: z.string().url().max(2048).optional(),
+  portfolioUrl: z.string().url().max(2048).optional(),
+  skills: z.array(z.string().trim().min(1).max(50)).max(30).optional(),
   organization: z.string().trim().max(160).optional(),
   location: z.string().trim().max(120).optional(),
   favoriteCategories: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
   profileVisibility: z.object({ profile: z.boolean().optional(), wallet: z.boolean().optional() }).optional()
 });
 
-type UserRow = { id: string; wallet_address: string; role: string; username: string; display_name: string; bio: string; avatar_url: string | null; banner_url: string | null; ens_name: string | null; website: string | null; github_url: string | null; linkedin_url: string | null; twitter_url: string | null; organization: string | null; location: string | null; favorite_categories: string[]; profile_visibility: { profile?: boolean; wallet?: boolean }; badges: string[]; verified: boolean; account_status: string; created_at: Date; last_active_at: Date | null };
+type UserRow = { id: string; wallet_address: string; role: string; username: string; display_name: string; bio: string; avatar_url: string | null; banner_url: string | null; ens_name: string | null; website: string | null; github_url: string | null; linkedin_url: string | null; twitter_url: string | null; huggingface_url: string | null; portfolio_url: string | null; skills: string[]; organization: string | null; location: string | null; favorite_categories: string[]; profile_visibility: { profile?: boolean; wallet?: boolean }; badges: string[]; verified: boolean; account_status: string; created_at: Date; last_active_at: Date | null };
 
 async function findUser(username: string) {
   const normalized = username.toLowerCase();
-  const current = await query<UserRow>("SELECT id, wallet_address, role, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE lower(username) = $1", [normalized]);
+  const current = await query<UserRow>("SELECT id, wallet_address, role, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, huggingface_url, portfolio_url, skills, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE lower(username) = $1", [normalized]);
   if (current.rows[0]) return { user: current.rows[0] };
   const history = await query<{ username: string }>("SELECT u.username FROM username_history h JOIN users u ON u.id = h.user_id WHERE lower(h.old_username) = $1 ORDER BY h.changed_at DESC LIMIT 1", [normalized]);
   return history.rows[0] ? { redirectUsername: history.rows[0].username } : {};
@@ -40,14 +43,21 @@ async function publicProfile(user: UserRow, req: import("express").Request) {
   const staffProfile = Boolean(req.user && isStaff(req.user.role));
   const visibility = user.profile_visibility ?? {};
   if (visibility.profile === false && !ownProfile && !staffProfile) return null;
-  const [followers, following, models, purchases, reputation] = await Promise.all([
+  const [followers, following, models, purchases, reputation, portfolio, downloads] = await Promise.all([
     query<{ count: string }>("SELECT count(*)::text AS count FROM creator_follows WHERE creator_user_id = $1", [user.id]),
     query<{ count: string }>("SELECT count(*)::text AS count FROM creator_follows WHERE follower_user_id = $1", [user.id]),
     query<{ count: string }>("SELECT count(*)::text AS count FROM models WHERE lower(creator_wallet) = lower($1) AND status <> 'removed'", [user.wallet_address]),
     query<{ count: string }>("SELECT count(*)::text AS count FROM purchases WHERE lower(buyer_wallet) = lower($1)", [user.wallet_address]),
     query("SELECT reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified FROM creator_reputation WHERE user_id = $1", [user.id])
+    ,query(`SELECT m.id::text, m.model_id_onchain, m.title, m.description, m.category, m.tags, m.license, m.download_count,
+                   COALESCE(ROUND(AVG(CASE WHEN r.target_type = 'model' THEN r.score END)::numeric, 1), 0) AS rating
+            FROM models m LEFT JOIN ratings r ON r.target_type = 'model' AND r.target_key = m.id::text
+            WHERE lower(m.creator_wallet) = lower($1) AND m.status = 'published'
+            GROUP BY m.id ORDER BY m.created_at DESC LIMIT 6`, [user.wallet_address])
+    ,query<{ count: string }>("SELECT COALESCE(SUM(download_count), 0)::text AS count FROM models WHERE lower(creator_wallet) = lower($1) AND status = 'published'", [user.wallet_address])
   ]);
   const creator = isCreator(user.role);
+  const portfolioRating = portfolio.rows.length ? portfolio.rows.reduce((total, item) => total + Number(item.rating || 0), 0) / portfolio.rows.length : 0;
   return {
     id: user.id,
     username: user.username,
@@ -60,6 +70,9 @@ async function publicProfile(user: UserRow, req: import("express").Request) {
     githubUrl: creator ? user.github_url : null,
     linkedinUrl: creator ? user.linkedin_url : null,
     twitterUrl: creator ? user.twitter_url : null,
+    huggingfaceUrl: creator ? user.huggingface_url : null,
+    portfolioUrl: creator ? user.portfolio_url : null,
+    skills: creator ? user.skills ?? [] : [],
     organization: user.organization,
     location: user.location,
     favoriteCategories: user.favorite_categories ?? [],
@@ -75,11 +88,12 @@ async function publicProfile(user: UserRow, req: import("express").Request) {
       models: Number(models.rows[0]?.count ?? 0),
       purchases: Number(purchases.rows[0]?.count ?? 0),
       sales: creator ? Number(reputation.rows[0]?.successful_sales ?? 0) : 0,
-      downloads: creator ? Number(reputation.rows[0]?.successful_downloads ?? 0) : 0,
-      averageRating: creator ? Number(reputation.rows[0]?.average_rating ?? 0) : 0,
+      downloads: creator ? Math.max(Number(reputation.rows[0]?.successful_downloads ?? 0), Number(downloads.rows[0]?.count ?? 0)) : 0,
+      averageRating: creator ? Number(reputation.rows[0]?.average_rating ?? portfolioRating) : 0,
       reputationScore: creator ? Number(reputation.rows[0]?.reputation_score ?? 0) : 0,
       trustScore: creator ? Number(reputation.rows[0]?.trust_score ?? 0) : 0
-    }
+    },
+    portfolio: creator ? portfolio.rows : []
   };
 }
 
@@ -106,7 +120,7 @@ router.get("/search", async (req, res, next) => {
 
 router.get("/profile", requireAuth, async (req, res, next) => {
   try {
-    const result = await query<UserRow>("SELECT id, wallet_address, role, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE id = $1", [req.user!.sub]);
+    const result = await query<UserRow>("SELECT id, wallet_address, role, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, huggingface_url, portfolio_url, skills, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at FROM users WHERE id = $1", [req.user!.sub]);
     if (!result.rows[0]) return res.status(404).json({ error: "Profile not found" });
     const profile = await publicProfile(result.rows[0], req);
     res.json({ profile });
@@ -138,11 +152,11 @@ router.patch("/profile", requireAuth, async (req, res, next) => {
         `UPDATE users SET username = $2,
           username_changed_at = CASE WHEN $2 IS DISTINCT FROM username THEN now() ELSE username_changed_at END,
           display_name = COALESCE($3, display_name), bio = COALESCE($4, bio), avatar_url = COALESCE($5, avatar_url), banner_url = COALESCE($6, banner_url),
-          ens_name = COALESCE($7, ens_name), website = COALESCE($8, website), github_url = COALESCE($9, github_url), linkedin_url = COALESCE($10, linkedin_url), twitter_url = COALESCE($11, twitter_url),
-          organization = COALESCE($12, organization), location = COALESCE($13, location), favorite_categories = COALESCE($14::text[], favorite_categories), profile_visibility = COALESCE($15::jsonb, profile_visibility), updated_at = now()
+          ens_name = COALESCE($7, ens_name), website = COALESCE($8, website), github_url = COALESCE($9, github_url), linkedin_url = COALESCE($10, linkedin_url), twitter_url = COALESCE($11, twitter_url), huggingface_url = COALESCE($12, huggingface_url), portfolio_url = COALESCE($13, portfolio_url), skills = COALESCE($14::text[], skills),
+          organization = COALESCE($15, organization), location = COALESCE($16, location), favorite_categories = COALESCE($17::text[], favorite_categories), profile_visibility = COALESCE($18::jsonb, profile_visibility), updated_at = now()
          WHERE id = $1
-         RETURNING id, wallet_address, role, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at`,
-        [req.user!.sub, nextUsername, body.displayName, body.bio, body.avatarUrl, body.bannerUrl, body.ensName, body.website, body.githubUrl, body.linkedinUrl, body.twitterUrl, body.organization, body.location, body.favoriteCategories, body.profileVisibility]
+         RETURNING id, wallet_address, role, username, display_name, bio, avatar_url, banner_url, ens_name, website, github_url, linkedin_url, twitter_url, huggingface_url, portfolio_url, skills, organization, location, favorite_categories, profile_visibility, badges, verified, account_status, created_at, last_active_at`,
+        [req.user!.sub, nextUsername, body.displayName, body.bio, body.avatarUrl, body.bannerUrl, body.ensName, body.website, body.githubUrl, body.linkedinUrl, body.twitterUrl, body.huggingfaceUrl, body.portfolioUrl, body.skills, body.organization, body.location, body.favoriteCategories, body.profileVisibility]
       );
       return updated.rows[0];
     });

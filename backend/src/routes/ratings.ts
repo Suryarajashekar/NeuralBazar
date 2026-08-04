@@ -6,7 +6,14 @@ import { requireAuth } from "../middleware/auth";
 import { refreshCreatorReputation } from "../services/reputation";
 
 const router = Router();
-const ratingSchema = z.object({ targetType: z.enum(["model", "developer"]), targetKey: z.string().min(1).max(120), score: z.number().int().min(1).max(5), review: z.string().max(1000).default("") });
+const ratingSchema = z.object({
+  targetType: z.enum(["model", "developer"]),
+  targetKey: z.string().min(1).max(120),
+  score: z.number().int().min(1).max(5),
+  review: z.string().max(1000).default(""),
+  onchainReviewHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
+  onchainReviewTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional()
+});
 const ratingRateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
 
 router.get("/", async (req, res, next) => {
@@ -15,7 +22,7 @@ router.get("/", async (req, res, next) => {
     const targetKey = z.string().min(1).parse(req.query.targetKey);
     // Reviews are public marketplace content, but the reviewer's wallet is
     // private account data and is intentionally not returned here.
-    const result = await query("SELECT score, review, verified_purchase, created_at FROM ratings WHERE target_type = $1 AND target_key = $2 AND reported_at IS NULL ORDER BY created_at DESC", [targetType, targetKey]);
+    const result = await query("SELECT score, review, verified_purchase, onchain_review_hash, onchain_review_tx_hash, created_at FROM ratings WHERE target_type = $1 AND target_key = $2 AND reported_at IS NULL ORDER BY created_at DESC", [targetType, targetKey]);
     const average = result.rows.length ? result.rows.reduce((sum, item) => sum + Number(item.score), 0) / result.rows.length : 0;
     res.json({ average: Number(average.toFixed(1)), count: result.rows.length, ratings: result.rows });
   } catch (error) { next(error); }
@@ -44,11 +51,11 @@ router.post("/", requireAuth, ratingRateLimit, async (req, res, next) => {
       if (!target.rows[0]) return res.status(404).json({ error: "Developer not found" });
     }
     const result = await query(
-      `INSERT INTO ratings (rater_wallet, target_type, target_key, score, review, verified_purchase, purchase_tx_hash)
-       VALUES (lower($1), $2, $3, $4, $5, $6, $7)
+      `INSERT INTO ratings (rater_wallet, target_type, target_key, score, review, verified_purchase, purchase_tx_hash, onchain_review_hash, onchain_review_tx_hash)
+       VALUES (lower($1), $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (rater_wallet, target_type, target_key)
-       DO UPDATE SET score = EXCLUDED.score, review = EXCLUDED.review, verified_purchase = EXCLUDED.verified_purchase, purchase_tx_hash = EXCLUDED.purchase_tx_hash, updated_at = now()
-       RETURNING *`, [req.user!.address, body.targetType, body.targetKey, body.score, body.review, verifiedPurchase, purchaseTxHash]
+       DO UPDATE SET score = EXCLUDED.score, review = EXCLUDED.review, verified_purchase = EXCLUDED.verified_purchase, purchase_tx_hash = EXCLUDED.purchase_tx_hash, onchain_review_hash = COALESCE(EXCLUDED.onchain_review_hash, ratings.onchain_review_hash), onchain_review_tx_hash = COALESCE(EXCLUDED.onchain_review_tx_hash, ratings.onchain_review_tx_hash), updated_at = now()
+       RETURNING *`, [req.user!.address, body.targetType, body.targetKey, body.score, body.review, verifiedPurchase, purchaseTxHash, body.onchainReviewHash ?? null, body.onchainReviewTxHash ?? null]
     );
     if (body.targetType === "developer") await refreshCreatorReputation(body.targetKey);
     if (creatorWallet) await refreshCreatorReputation(creatorWallet);

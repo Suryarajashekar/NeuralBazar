@@ -11,6 +11,7 @@ export type Permission =
   | "marketplace.browse" | "marketplace.purchase" | "marketplace.download" | "marketplace.wishlist"
   | "marketplace.review" | "marketplace.follow"
   | "model.upload" | "model.manage" | "model.version" | "analytics.creator"
+  | "analytics.admin" | "admin.dashboard.read" | "moderation.reviews" | "moderation.comments" | "refunds.review"
   | "support.profile.read" | "support.purchases.read" | "support.downloads.read"
   | "support.username.reset" | "support.notifications.send" | "support.tickets.manage"
   | "moderation.content" | "moderation.reports" | "moderation.users.suspend" | "moderation.creator.verify"
@@ -21,8 +22,8 @@ const rolePermissions: Record<"customer" | "creator" | "support_admin" | "modera
   customer: ["marketplace.browse", "marketplace.purchase", "marketplace.download", "marketplace.wishlist", "marketplace.review", "marketplace.follow"],
   creator: ["marketplace.browse", "marketplace.purchase", "marketplace.download", "marketplace.wishlist", "marketplace.review", "marketplace.follow", "model.upload", "model.manage", "model.version", "analytics.creator"],
   support_admin: ["marketplace.browse", "marketplace.purchase", "marketplace.download", "marketplace.wishlist", "marketplace.review", "marketplace.follow", "support.profile.read", "support.purchases.read", "support.downloads.read", "support.username.reset", "support.notifications.send", "support.tickets.manage"],
-  moderator: ["marketplace.browse", "marketplace.purchase", "marketplace.download", "marketplace.wishlist", "marketplace.review", "marketplace.follow", "support.profile.read", "support.purchases.read", "support.downloads.read", "support.tickets.manage", "moderation.content", "moderation.reports", "moderation.users.suspend", "moderation.creator.verify"],
-  super_admin: ["marketplace.browse", "marketplace.purchase", "marketplace.download", "marketplace.wishlist", "marketplace.review", "marketplace.follow", "model.upload", "model.manage", "model.version", "analytics.creator", "support.profile.read", "support.purchases.read", "support.downloads.read", "support.username.reset", "support.notifications.send", "support.tickets.manage", "moderation.content", "moderation.reports", "moderation.users.suspend", "moderation.creator.verify", "admin.users.manage", "admin.roles.manage", "admin.settings.manage", "admin.financial.read", "admin.audit.read", "admin.api_keys.manage", "admin.announcements", "admin.maintenance"]
+  moderator: ["marketplace.browse", "marketplace.purchase", "marketplace.download", "marketplace.wishlist", "marketplace.review", "marketplace.follow", "support.profile.read", "support.purchases.read", "support.downloads.read", "support.tickets.manage", "moderation.content", "moderation.reports", "moderation.users.suspend", "moderation.creator.verify", "analytics.admin", "admin.dashboard.read", "moderation.reviews", "moderation.comments", "refunds.review"],
+  super_admin: ["marketplace.browse", "marketplace.purchase", "marketplace.download", "marketplace.wishlist", "marketplace.review", "marketplace.follow", "model.upload", "model.manage", "model.version", "analytics.creator", "analytics.admin", "admin.dashboard.read", "moderation.reviews", "moderation.comments", "refunds.review", "support.profile.read", "support.purchases.read", "support.downloads.read", "support.username.reset", "support.notifications.send", "support.tickets.manage", "moderation.content", "moderation.reports", "moderation.users.suspend", "moderation.creator.verify", "admin.users.manage", "admin.roles.manage", "admin.settings.manage", "admin.financial.read", "admin.audit.read", "admin.api_keys.manage", "admin.announcements", "admin.maintenance"]
 };
 
 export function canonicalRole(role: string): "customer" | "creator" | "support_admin" | "moderator" | "super_admin" {
@@ -51,4 +52,3 @@ export function requirePermission(permission: Permission) {
     next();
   };
 }
-

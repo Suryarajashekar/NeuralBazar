@@ -18,6 +18,7 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
     uint96 public constant MAX_ROYALTY_BPS = 2_500;
     uint256 private _nextModelId = 1;
     mapping(uint256 modelId => Model model) private _models;
+    mapping(uint256 modelId => bytes32 contentHash) private _modelHashes;
 
     event ModelRegistered(
         uint256 indexed modelId,
@@ -28,6 +29,7 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
     event MetadataUpdated(uint256 indexed modelId, string newURI);
     event ModelMetadataUpdated(uint256 indexed modelId, address indexed account, string previousURI, string newURI);
     event ModelRoyaltyUpdated(uint256 indexed modelId, uint96 royaltyBps);
+    event ModelHashAnchored(uint256 indexed modelId, bytes32 indexed contentHash);
 
     constructor() ERC721("NeuralBazaar AI Model", "NAIM") Ownable(msg.sender) {}
 
@@ -37,6 +39,30 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
         string calldata metadataURI,
         uint96 royaltyBps
     ) external returns (uint256 modelId) {
+        // Legacy callers still get a deterministic anchor. New upload flows
+        // should use registerModelWithHash with the artifact SHA-256.
+        return _registerModel(ipfsHash, metadataURI, keccak256(bytes(ipfsHash)), royaltyBps);
+    }
+
+    /// @notice Register a model and anchor the exact uploaded artifact hash.
+    /// @dev The hash is kept separate from the CID so encrypted delivery or
+    /// gateway changes cannot silently change the artifact provenance.
+    function registerModelWithHash(
+        string calldata ipfsHash,
+        string calldata metadataURI,
+        bytes32 contentHash,
+        uint96 royaltyBps
+    ) external returns (uint256 modelId) {
+        require(contentHash != bytes32(0), "Registry: empty content hash");
+        return _registerModel(ipfsHash, metadataURI, contentHash, royaltyBps);
+    }
+
+    function _registerModel(
+        string calldata ipfsHash,
+        string calldata metadataURI,
+        bytes32 contentHash,
+        uint96 royaltyBps
+    ) internal returns (uint256 modelId) {
         require(bytes(ipfsHash).length > 0, "Registry: empty IPFS hash");
         require(bytes(metadataURI).length > 0, "Registry: empty metadata URI");
         require(royaltyBps <= MAX_ROYALTY_BPS, "Registry: royalty too high");
@@ -45,9 +71,11 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
         unchecked { _nextModelId++; }
         _safeMint(msg.sender, modelId);
         _models[modelId] = Model(msg.sender, ipfsHash, metadataURI, royaltyBps);
+        _modelHashes[modelId] = contentHash;
         _setTokenRoyalty(modelId, msg.sender, royaltyBps);
 
         emit ModelRegistered(modelId, msg.sender, ipfsHash, metadataURI);
+        emit ModelHashAnchored(modelId, contentHash);
     }
 
     /// @notice Update the metadata URI for a model owned by or originally created by the caller.
@@ -81,6 +109,12 @@ contract AIModelRegistry is ERC721, ERC2981, Ownable {
     function creatorOf(uint256 modelId) external view returns (address) {
         require(_exists(modelId), "Registry: model missing");
         return _models[modelId].creator;
+    }
+
+    /// @notice Return the immutable artifact hash anchored at registration.
+    function modelHashOf(uint256 modelId) external view returns (bytes32) {
+        require(_exists(modelId), "Registry: model missing");
+        return _modelHashes[modelId];
     }
 
     /// @notice Return the number of the next model token to be minted.

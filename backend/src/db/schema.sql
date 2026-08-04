@@ -216,6 +216,17 @@ ALTER TABLE models ADD COLUMN IF NOT EXISTS featured BOOLEAN NOT NULL DEFAULT fa
 ALTER TABLE models ADD COLUMN IF NOT EXISTS trending_score NUMERIC(14, 4) NOT NULL DEFAULT 0;
 ALTER TABLE models ADD COLUMN IF NOT EXISTS view_count BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE models ADD COLUMN IF NOT EXISTS download_count BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS screenshots TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE models ADD COLUMN IF NOT EXISTS demo_video_url TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS playground_url TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS documentation_url TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS api_reference_url TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS supported_languages TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE models ADD COLUMN IF NOT EXISTS current_version TEXT NOT NULL DEFAULT 'v1.0.0';
+ALTER TABLE models ADD COLUMN IF NOT EXISTS changelog JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS context_length INTEGER;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS gpu_requirement TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS content_hash TEXT;
 
 ALTER TABLE models ALTER COLUMN security_status SET DEFAULT 'legacy_unverified';
 UPDATE models SET security_status = 'legacy_unverified' WHERE security_status IS NULL AND status = 'published';
@@ -240,6 +251,50 @@ ALTER TABLE ratings ADD COLUMN IF NOT EXISTS verified_purchase BOOLEAN NOT NULL 
 ALTER TABLE ratings ADD COLUMN IF NOT EXISTS purchase_tx_hash TEXT;
 ALTER TABLE ratings ADD COLUMN IF NOT EXISTS reported_at TIMESTAMPTZ;
 ALTER TABLE ratings ADD COLUMN IF NOT EXISTS report_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE ratings ADD COLUMN IF NOT EXISTS onchain_review_hash TEXT;
+ALTER TABLE ratings ADD COLUMN IF NOT EXISTS onchain_review_tx_hash TEXT;
+
+-- Phase 9 blockchain provenance. These records are materialized from the
+-- contract event stream while the contracts remain the source of truth.
+CREATE TABLE IF NOT EXISTS license_tokens (
+  license_id_onchain BIGINT PRIMARY KEY,
+  model_id_onchain BIGINT NOT NULL,
+  owner_wallet TEXT NOT NULL,
+  creator_wallet TEXT NOT NULL,
+  model_hash TEXT NOT NULL,
+  license_uri TEXT NOT NULL,
+  issued_tx_hash TEXT NOT NULL,
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS license_purchases (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  license_id_onchain BIGINT NOT NULL,
+  model_id_onchain BIGINT NOT NULL,
+  buyer_wallet TEXT NOT NULL,
+  seller_wallet TEXT NOT NULL,
+  price_paid_wei NUMERIC(78, 0) NOT NULL,
+  royalty_paid_wei NUMERIC(78, 0) NOT NULL DEFAULT 0,
+  tx_hash TEXT NOT NULL,
+  purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (license_id_onchain, tx_hash)
+);
+
+CREATE TABLE IF NOT EXISTS onchain_reviews (
+  review_hash TEXT PRIMARY KEY,
+  model_id_onchain BIGINT NOT NULL,
+  reviewer_wallet TEXT NOT NULL,
+  score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
+  review_uri TEXT NOT NULL,
+  tx_hash TEXT UNIQUE NOT NULL,
+  anchored_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS license_tokens_owner_idx ON license_tokens(owner_wallet);
+CREATE INDEX IF NOT EXISTS license_tokens_model_idx ON license_tokens(model_id_onchain);
+CREATE INDEX IF NOT EXISTS license_purchases_buyer_idx ON license_purchases(buyer_wallet);
+CREATE INDEX IF NOT EXISTS onchain_reviews_model_idx ON onchain_reviews(model_id_onchain);
 
 CREATE TABLE IF NOT EXISTS creator_reputation (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -274,6 +329,37 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
 );
+
+ALTER TABLE benchmark_runs ADD COLUMN IF NOT EXISTS cost_per_1k_tokens NUMERIC(14, 6);
+
+CREATE TABLE IF NOT EXISTS evaluation_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  dataset_name TEXT NOT NULL,
+  dataset_size_bytes BIGINT NOT NULL DEFAULT 0,
+  dataset_manifest JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'not_available', 'failed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_results (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  evaluation_id UUID NOT NULL REFERENCES evaluation_jobs(id) ON DELETE CASCADE,
+  model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  benchmark_run_id UUID REFERENCES benchmark_runs(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'not_available', 'failed')),
+  accuracy NUMERIC(10, 6),
+  latency_ms NUMERIC(14, 4),
+  memory_mb NUMERIC(14, 4),
+  cost_per_1k_tokens NUMERIC(14, 6),
+  leaderboard_score NUMERIC(14, 6),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  UNIQUE (evaluation_id, model_id)
+);
+
+ALTER TABLE benchmark_runs ADD COLUMN IF NOT EXISTS evaluation_id UUID REFERENCES evaluation_jobs(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS model_embeddings (
   model_id UUID PRIMARY KEY REFERENCES models(id) ON DELETE CASCADE,
@@ -407,11 +493,15 @@ CREATE TABLE IF NOT EXISTS api_usage (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  model_id UUID REFERENCES models(id) ON DELETE SET NULL,
   api_key_id TEXT NOT NULL DEFAULT '',
   endpoint TEXT NOT NULL,
   status_code INTEGER NOT NULL,
   latency_ms NUMERIC(14, 4) NOT NULL DEFAULT 0,
   units BIGINT NOT NULL DEFAULT 1,
+  tokens BIGINT NOT NULL DEFAULT 0,
+  cost_usd NUMERIC(14, 6) NOT NULL DEFAULT 0,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -465,12 +555,22 @@ CREATE INDEX IF NOT EXISTS models_security_idx ON models(verified_safe, security
 CREATE INDEX IF NOT EXISTS models_trending_idx ON models(trending_score DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS models_search_document_idx ON models USING GIN(search_document);
 CREATE INDEX IF NOT EXISTS benchmark_runs_model_idx ON benchmark_runs(model_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS benchmark_runs_cost_idx ON benchmark_runs(cost_per_1k_tokens);
+CREATE INDEX IF NOT EXISTS evaluation_jobs_owner_idx ON evaluation_jobs(owner_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS evaluation_results_eval_idx ON evaluation_results(evaluation_id, leaderboard_score DESC);
 CREATE INDEX IF NOT EXISTS model_embeddings_model_idx ON model_embeddings(model_id);
 CREATE INDEX IF NOT EXISTS user_activity_recent_idx ON user_activity(user_id, activity_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS model_versions_model_idx ON model_versions(model_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, read_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS api_usage_org_idx ON api_usage(organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS api_usage_user_idx ON api_usage(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS research_artifacts_model_idx ON research_artifacts(model_id, artifact_type, created_at DESC);
+
+ALTER TABLE api_usage ADD COLUMN IF NOT EXISTS model_id UUID REFERENCES models(id) ON DELETE SET NULL;
+ALTER TABLE api_usage ADD COLUMN IF NOT EXISTS tokens BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE api_usage ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(14, 6) NOT NULL DEFAULT 0;
+ALTER TABLE api_usage ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS api_usage_model_idx ON api_usage(model_id, created_at DESC);
 
 CREATE OR REPLACE FUNCTION neuralbazaar_models_search_document() RETURNS trigger AS $$
 BEGIN
@@ -499,6 +599,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS website TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS github_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedin_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS twitter_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS huggingface_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS portfolio_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS skills TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS organization TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS favorite_categories TEXT[] NOT NULL DEFAULT '{}';
@@ -553,6 +656,77 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 );
 CREATE INDEX IF NOT EXISTS support_tickets_queue_idx ON support_tickets(status, priority, updated_at DESC);
 CREATE INDEX IF NOT EXISTS support_tickets_requester_idx ON support_tickets(requester_user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'cancelled', 'past_due')),
+  monthly_credits BIGINT NOT NULL DEFAULT 0,
+  credits_used BIGINT NOT NULL DEFAULT 0,
+  monthly_cost_usd NUMERIC(14, 2) NOT NULL DEFAULT 0,
+  renews_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS subscriptions_user_idx ON subscriptions(user_id, status, renews_at DESC);
+
+CREATE TABLE IF NOT EXISTS refund_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  requester_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purchase_id UUID NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'paid')),
+  reviewer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  resolution_note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (requester_user_id, purchase_id)
+);
+CREATE INDEX IF NOT EXISTS refund_requests_status_idx ON refund_requests(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS model_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  author_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  moderation_status TEXT NOT NULL DEFAULT 'visible' CHECK (moderation_status IN ('visible', 'hidden', 'removed')),
+  moderation_notes TEXT NOT NULL DEFAULT '',
+  moderated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS model_comments_moderation_idx ON model_comments(moderation_status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS creator_experiments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('draft', 'running', 'paused', 'completed')),
+  primary_metric TEXT NOT NULL DEFAULT 'conversion_rate',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS creator_experiment_variants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  experiment_id UUID NOT NULL REFERENCES creator_experiments(id) ON DELETE CASCADE,
+  variant_key TEXT NOT NULL,
+  label TEXT NOT NULL,
+  version_id UUID REFERENCES model_versions(id) ON DELETE SET NULL,
+  traffic_percent NUMERIC(5, 2) NOT NULL DEFAULT 50 CHECK (traffic_percent >= 0 AND traffic_percent <= 100),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (experiment_id, variant_key)
+);
+CREATE TABLE IF NOT EXISTS creator_experiment_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  experiment_id UUID NOT NULL REFERENCES creator_experiments(id) ON DELETE CASCADE,
+  variant_id UUID NOT NULL REFERENCES creator_experiment_variants(id) ON DELETE CASCADE,
+  visitor_key TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('view', 'purchase')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS creator_experiment_events_idx ON creator_experiment_events(experiment_id, variant_id, event_type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS faq_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

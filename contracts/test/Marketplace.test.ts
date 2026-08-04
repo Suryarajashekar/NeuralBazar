@@ -53,6 +53,46 @@ describe("NeuralBazaar contracts", function () {
     await expect(access.connect(governance).grantAccess(buyer.address, 1)).to.be.revertedWithCustomError(access, "AccessControlUnauthorizedAccount");
   });
 
+  it("anchors the artifact, mints a license NFT, pays resale royalties, and anchors reviews", async function () {
+    const [governance, creator, buyer, reseller] = await ethers.getSigners();
+    const registry = await ethers.deployContract("AIModelRegistry") as any;
+    await registry.waitForDeployment();
+    const license = await ethers.deployContract("AILicenseNFT", [governance.address]) as any;
+    await license.waitForDeployment();
+    const marketplace = await ethers.deployContract("AIModelMarketplaceV2", [await registry.getAddress(), governance.address, governance.address]) as any;
+    await marketplace.waitForDeployment();
+    const reviewAnchor = await ethers.deployContract("ImmutableReviewAnchor", [await license.getAddress()]) as any;
+    await reviewAnchor.waitForDeployment();
+
+    const modelHash = ethers.keccak256(ethers.toUtf8Bytes("uploaded-model-sha256"));
+    await registry.connect(creator).registerModelWithHash("QmAnchoredModel", "ipfs://QmAnchoredMetadata", modelHash, 500);
+    expect(await registry.modelHashOf(1)).to.equal(modelHash);
+    await registry.connect(creator).approve(await marketplace.getAddress(), 1);
+    await marketplace.connect(governance).setLicenseNFT(await license.getAddress());
+    await license.connect(governance).grantRole(await license.MINTER_ROLE(), await marketplace.getAddress());
+    await marketplace.connect(creator).createListing(1, ethers.parseEther("1"));
+
+    await expect(marketplace.connect(buyer).buyModel(1, { value: ethers.parseEther("1") }))
+      .to.emit(marketplace, "LicenseIssuedForPurchase").withArgs(1, 1, buyer.address, modelHash);
+    expect(await license.ownerOf(1)).to.equal(buyer.address);
+    expect(await license.hasModelLicense(buyer.address, 1)).to.equal(true);
+    expect((await license.licenseDetails(1)).modelHash).to.equal(modelHash);
+
+    await license.connect(buyer).approve(await marketplace.getAddress(), 1);
+    await marketplace.connect(buyer).createLicenseListing(1, ethers.parseEther("2"));
+    await expect(marketplace.connect(reseller).buyLicense(1, { value: ethers.parseEther("2") }))
+      .to.emit(marketplace, "LicensePurchased").withArgs(1, 1, reseller.address, buyer.address, ethers.parseEther("2"), ethers.parseEther("0.1"));
+    expect(await license.ownerOf(1)).to.equal(reseller.address);
+    expect(await marketplace.pendingWithdrawals(creator.address)).to.equal(ethers.parseEther("1.1"));
+
+    const reviewHash = ethers.keccak256(ethers.toUtf8Bytes("review:1:5:excellent"));
+    await expect(reviewAnchor.connect(reseller).anchorReview(reviewHash, 1, 5, "ipfs://QmReview"))
+      .to.emit(reviewAnchor, "ReviewAnchored").withArgs(reviewHash, 1, reseller.address, 5, "ipfs://QmReview");
+    expect(await reviewAnchor.anchoredReviews(reviewHash)).to.equal(true);
+    await expect(reviewAnchor.connect(reseller).anchorReview(reviewHash, 1, 5, "ipfs://QmReview"))
+      .to.be.revertedWith("ReviewAnchor: already anchored");
+  });
+
   it("accepts an EIP-712 purchase authorization once and rejects replay", async function () {
     const [creator, buyer, relayer] = await ethers.getSigners();
     const registry = await ethers.deployContract("AIModelRegistry") as any;

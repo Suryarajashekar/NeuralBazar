@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { query } from "../db";
 import { config } from "../config";
-import { accessAbi, getBackendSigner, getProvider, marketplaceAbi, registryAbi } from "./chain";
+import { accessAbi, getBackendSigner, getProvider, licenseAbi, marketplaceAbi, registryAbi, reviewAnchorAbi } from "./chain";
 
 let running = false;
 
@@ -27,6 +27,13 @@ export async function syncChainOnce() {
        ON CONFLICT (model_id_onchain) DO UPDATE SET ipfs_hash = EXCLUDED.ipfs_hash, metadata_uri = EXCLUDED.metadata_uri, updated_at = now()`,
       [String(modelId), creatorAddress, String(ipfsHash), String(metadataURI), `Model #${modelId}`, "Newly registered AI model", "Other", [], "Custom"]
     );
+  }
+
+  const hashes = await registry.queryFilter(registry.filters.ModelHashAnchored(), fromBlock, toBlock);
+  for (const event of hashes) {
+    const log = event as ethers.EventLog;
+    const [modelId, contentHash] = log.args;
+    await query("UPDATE models SET content_hash = $2, updated_at = now() WHERE model_id_onchain = $1", [String(modelId), String(contentHash)]);
   }
 
   const listings = await marketplace.queryFilter(marketplace.filters.ListingCreated(), fromBlock, toBlock);
@@ -68,6 +75,58 @@ export async function syncChainOnce() {
       const access = new ethers.Contract(config.accessManagerAddress, accessAbi, getBackendSigner());
       const tx = await access.grantAccess(String(buyer), String(modelId));
       await tx.wait();
+    }
+  }
+
+  if (config.licenseNFTAddress && ethers.isAddress(config.licenseNFTAddress)) {
+    const license = new ethers.Contract(config.licenseNFTAddress, licenseAbi, provider);
+    const issued = await license.queryFilter(license.filters.LicenseIssued(), fromBlock, toBlock);
+    for (const event of issued) {
+      const log = event as ethers.EventLog;
+      const [licenseId, modelId, licensee, creator, modelHash, licenseURI] = log.args;
+      await query(
+        `INSERT INTO license_tokens (license_id_onchain, model_id_onchain, owner_wallet, creator_wallet, model_hash, license_uri, issued_tx_hash)
+         VALUES ($1, $2, lower($3), lower($4), $5, $6, $7)
+         ON CONFLICT (license_id_onchain) DO UPDATE SET owner_wallet = EXCLUDED.owner_wallet, updated_at = now()`,
+        [String(licenseId), String(modelId), String(licensee), String(creator), String(modelHash), String(licenseURI), log.transactionHash]
+      );
+    }
+
+    const transfers = await license.queryFilter(license.filters.Transfer(), fromBlock, toBlock);
+    for (const event of transfers) {
+      const log = event as ethers.EventLog;
+      const [, to, licenseId] = log.args;
+      if (String(to) !== ethers.ZeroAddress) {
+        await query("UPDATE license_tokens SET owner_wallet = lower($2), updated_at = now() WHERE license_id_onchain = $1", [String(licenseId), String(to)]);
+      }
+    }
+  }
+
+  const licensePurchases = await marketplace.queryFilter(marketplace.filters.LicensePurchased(), fromBlock, toBlock);
+  for (const event of licensePurchases) {
+    const log = event as ethers.EventLog;
+    const [listingId, licenseId, buyer, seller, price, royaltyAmount] = log.args;
+    await query(
+      `INSERT INTO license_purchases (license_id_onchain, model_id_onchain, buyer_wallet, seller_wallet, price_paid_wei, royalty_paid_wei, tx_hash)
+       SELECT $1, model_id_onchain, lower($2), lower($3), $4, $5, $6 FROM license_tokens WHERE license_id_onchain = $1
+       ON CONFLICT (license_id_onchain, tx_hash) DO NOTHING`,
+      [String(licenseId), String(buyer), String(seller), String(price), String(royaltyAmount), log.transactionHash]
+    );
+    await query("UPDATE license_tokens SET owner_wallet = lower($2), updated_at = now() WHERE license_id_onchain = $1", [String(licenseId), String(buyer)]);
+    void listingId;
+  }
+
+  if (config.reviewAnchorAddress && ethers.isAddress(config.reviewAnchorAddress)) {
+    const reviewAnchor = new ethers.Contract(config.reviewAnchorAddress, reviewAnchorAbi, provider);
+    const reviews = await reviewAnchor.queryFilter(reviewAnchor.filters.ReviewAnchored(), fromBlock, toBlock);
+    for (const event of reviews) {
+      const log = event as ethers.EventLog;
+      const [reviewHash, modelId, reviewer, score, reviewURI] = log.args;
+      await query(
+        `INSERT INTO onchain_reviews (review_hash, model_id_onchain, reviewer_wallet, score, review_uri, tx_hash)
+         VALUES ($1, $2, lower($3), $4, $5, $6) ON CONFLICT (review_hash) DO NOTHING`,
+        [String(reviewHash), String(modelId), String(reviewer), Number(score), String(reviewURI), log.transactionHash]
+      );
     }
   }
 
