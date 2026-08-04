@@ -1,46 +1,55 @@
 import { pool, query } from ".";
 
 async function main() {
-  await query(
-    `INSERT INTO users (wallet_address, role, username, bio, display_name, website, github_url, huggingface_url, skills, verified) VALUES
+  await query(`
+    INSERT INTO users (wallet_address, role, username, bio, display_name, website, github_url, huggingface_url, skills, verified) VALUES
       ('0x1111111111111111111111111111111111111111', 'creator', 'VectorForge', 'Open-source computer vision researcher', 'Mira Chen', 'https://vectorforge.dev', 'https://github.com/vectorforge', 'https://huggingface.co/vectorforge', ARRAY['Computer vision','PyTorch','Embeddings'], true),
-      ('0x2222222222222222222222222222222222222222', 'creator', 'SignalWorks', 'Forecasting and time-series specialist', 'Jon Bell', 'https://signalworks.ai', 'https://github.com/signalworks', 'https://huggingface.co/signalworks', ARRAY['Forecasting','Time series','Python'], true)
-     ON CONFLICT (wallet_address) DO NOTHING`
-  );
-  await query(
-    `INSERT INTO models (model_id_onchain, creator_wallet, ipfs_hash, metadata_uri, title, description, category, tags, license, current_version, context_length, gpu_requirement, supported_languages, screenshots, documentation_url, api_reference_url, playground_url, demo_video_url, changelog, download_count)
-     VALUES
-       (1001, '0x1111111111111111111111111111111111111111', 'QmVectorForge', 'ipfs://QmVectorForgeMetadata', 'Vector Vision Pro', 'High-accuracy image embeddings for product search.', 'Computer Vision', ARRAY['embeddings','search','vision'], 'Apache-2.0', 'v2.4.1', 8192, '1x T4 · 16 GB VRAM', ARRAY['Python','JavaScript','cURL'], ARRAY['preview-1','preview-2','preview-3'], 'https://docs.neuralbazaar.local/vector-vision', 'https://docs.neuralbazaar.local/vector-vision/api', 'https://play.neuralbazaar.local/vector-vision', 'https://video.neuralbazaar.local/vector-vision', '[{"version":"v2.4.1","date":"Jun 18, 2026","summary":"Faster indexing and stronger low-light retrieval.","changes":["Reduced median embedding latency by 34%","Added multilingual product labels"]}]'::jsonb, 18420),
-       (1002, '0x2222222222222222222222222222222222222222', 'QmSignalWorks', 'ipfs://QmSignalWorksMetadata', 'Signal Forecast 2.1', 'Interpretable forecasting model for operational demand.', 'Forecasting', ARRAY['forecasting','time-series','operations'], 'MIT', 'v2.1.0', 4096, 'CPU or 1x T4 · 8 GB VRAM', ARRAY['Python','R'], ARRAY['forecast-1','forecast-2'], 'https://docs.neuralbazaar.local/signal-forecast', 'https://docs.neuralbazaar.local/signal-forecast/api', NULL, NULL, '[{"version":"v2.1.0","date":"Jun 03, 2026","summary":"Improved confidence intervals for sparse series.","changes":["Added holiday-aware seasonality"]}]'::jsonb, 8930)
-      ON CONFLICT (model_id_onchain) DO NOTHING`
-  );
-  await query(
-    `INSERT INTO creator_reputation (user_id, reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified)
-     SELECT id, 92, 95, 128, 18420, 4.9, true FROM users WHERE lower(wallet_address) = lower('0x1111111111111111111111111111111111111111')
-     ON CONFLICT (user_id) DO NOTHING;
-     INSERT INTO creator_reputation (user_id, reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified)
-     SELECT id, 88, 91, 64, 8930, 4.7, true FROM users WHERE lower(wallet_address) = lower('0x2222222222222222222222222222222222222222')
-     ON CONFLICT (user_id) DO NOTHING;`
-  );
-  await query(
-    `INSERT INTO benchmark_runs (model_id, status, accuracy, latency_ms, inference_speed, gpu_memory_mb, cost_per_1k_tokens, model_size_bytes, dataset_name, runner_version, completed_at)
-     SELECT id, 'completed', 0.942, 42.0, 23.8, 4096, 0.012, 185000000, 'retail-search-v3', 'neuralbazaar-runner-1.2', now() FROM models m WHERE model_id_onchain = 1001 AND NOT EXISTS (SELECT 1 FROM benchmark_runs b WHERE b.model_id = m.id AND b.status = 'completed');
-     INSERT INTO benchmark_runs (model_id, status, accuracy, latency_ms, inference_speed, gpu_memory_mb, cost_per_1k_tokens, model_size_bytes, dataset_name, runner_version, completed_at)
-     SELECT id, 'completed', 0.887, 68.0, 14.7, 2048, 0.008, 92000000, 'operations-forecast-v2', 'neuralbazaar-runner-1.2', now() FROM models m WHERE model_id_onchain = 1002 AND NOT EXISTS (SELECT 1 FROM benchmark_runs b WHERE b.model_id = m.id AND b.status = 'completed');`
-  );
-  await query(
-    `INSERT INTO ratings (rater_wallet, target_type, target_key, score, review) VALUES
+      ('0x2222222222222222222222222222222222222222', 'creator', 'SignalWorks', 'Forecasting and time-series specialist', 'Jon Bell', 'https://signalworks.ai', 'https://github.com/signalworks', 'https://huggingface.co/signalworks', ARRAY['Forecasting','Time series','Python'], true),
+      ('0x3333333333333333333333333333333333333333', 'creator', 'MosaicLabs', 'Compact models for reliable edge inference', 'Ava Patel', 'https://mosaiclabs.ai', 'https://github.com/mosaiclabs', 'https://huggingface.co/mosaiclabs', ARRAY['Edge AI','ONNX','Optimization'], true),
+      ('0x4444444444444444444444444444444444444444', 'creator', 'PromptSmith', 'Prompt systems and agent workflows for teams', 'Ravi Shah', 'https://promptsmith.dev', 'https://github.com/promptsmith', 'https://huggingface.co/promptsmith', ARRAY['Prompts','Agents','Evaluation'], true),
+      ('0x5555555555555555555555555555555555555555', 'creator', 'AudioBloom', 'Speech and audio intelligence for regional languages', 'Nila Rao', 'https://audiobloom.ai', 'https://github.com/audiobloom', 'https://huggingface.co/audiobloom', ARRAY['Audio','Speech','Kannada'], true)
+    ON CONFLICT (wallet_address) DO NOTHING;
+
+    INSERT INTO models (model_id_onchain, creator_wallet, ipfs_hash, metadata_uri, title, description, category, tags, license, current_version, context_length, gpu_requirement, supported_languages, screenshots, documentation_url, api_reference_url, playground_url, demo_video_url, changelog, download_count)
+    VALUES
+      (1001, '0x1111111111111111111111111111111111111111', 'QmVectorForge', 'ipfs://QmVectorForgeMetadata', 'Vector Vision Pro', 'High-accuracy image embeddings for product search.', 'Computer Vision', ARRAY['embeddings','search','vision'], 'Apache-2.0', 'v2.4.1', 8192, '1x T4 16 GB VRAM', ARRAY['Python','JavaScript','cURL'], ARRAY['preview-1','preview-2','preview-3'], 'https://docs.neuralbazaar.local/vector-vision', 'https://docs.neuralbazaar.local/vector-vision/api', 'https://play.neuralbazaar.local/vector-vision', 'https://video.neuralbazaar.local/vector-vision', '[{"version":"v2.4.1","date":"Jun 18, 2026","summary":"Faster indexing and stronger low-light retrieval.","changes":["Reduced median embedding latency by 34%","Added multilingual product labels"]}]'::jsonb, 18420),
+      (1002, '0x2222222222222222222222222222222222222222', 'QmSignalWorks', 'ipfs://QmSignalWorksMetadata', 'Signal Forecast 2.1', 'Interpretable forecasting model for operational demand.', 'Forecasting', ARRAY['forecasting','time-series','operations'], 'MIT', 'v2.1.0', 4096, 'CPU or 1x T4 8 GB VRAM', ARRAY['Python','R'], ARRAY['forecast-1','forecast-2'], 'https://docs.neuralbazaar.local/signal-forecast', 'https://docs.neuralbazaar.local/signal-forecast/api', NULL, NULL, '[{"version":"v2.1.0","date":"Jun 03, 2026","summary":"Improved confidence intervals for sparse series.","changes":["Added holiday-aware seasonality"]}]'::jsonb, 8930),
+      (1003, '0x3333333333333333333333333333333333333333', 'QmMosaicClassifier', 'ipfs://QmMosaicClassifierMetadata', 'Mosaic Classifier', 'Compact image classifier tuned for edge deployments and low-latency inference.', 'Edge AI', ARRAY['edge','classification','onnx'], 'MIT', 'v1.3.2', 2048, 'CPU or 1x Jetson Nano', ARRAY['Python','C++'], ARRAY['mosaic-1','mosaic-2'], 'https://docs.neuralbazaar.local/mosaic-classifier', 'https://docs.neuralbazaar.local/mosaic-classifier/api', NULL, NULL, '[]'::jsonb, 4210),
+      (1004, '0x5555555555555555555555555555555555555555', 'QmKannadaOCR', 'ipfs://QmKannadaOCRMetadata', 'Kannada OCR Pro', 'OCR for Kannada and mixed-script documents with layout-aware extraction.', 'Computer Vision', ARRAY['ocr','kannada','documents','vision'], 'Apache-2.0', 'v1.8.0', 4096, '1x T4 8 GB VRAM', ARRAY['Python','JavaScript','cURL'], ARRAY['ocr-1','ocr-2'], 'https://docs.neuralbazaar.local/kannada-ocr', 'https://docs.neuralbazaar.local/kannada-ocr/api', NULL, NULL, '[]'::jsonb, 11780),
+      (1005, '0x5555555555555555555555555555555555555555', 'QmLumenSpeech', 'ipfs://QmLumenSpeechMetadata', 'Lumen Speech', 'Multilingual speech-to-text with timestamps and noisy-room robustness.', 'Audio', ARRAY['speech','transcription','audio','multilingual'], 'Apache-2.0', 'v3.0.1', 8192, '1x A10 24 GB VRAM', ARRAY['Python','JavaScript'], ARRAY['speech-1','speech-2'], 'https://docs.neuralbazaar.local/lumen-speech', 'https://docs.neuralbazaar.local/lumen-speech/api', NULL, NULL, '[]'::jsonb, 7620),
+      (1006, '0x4444444444444444444444444444444444444444', 'QmPromptPilot', 'ipfs://QmPromptPilotMetadata', 'PromptPilot Library', 'Curated production prompts for support, research, and structured extraction.', 'Prompt', ARRAY['prompts','support','structured-output'], 'Creative Commons', 'v2.0.0', NULL, 'No GPU required', ARRAY['JSON','Python','cURL'], ARRAY['prompt-1','prompt-2'], 'https://docs.neuralbazaar.local/promptpilot', 'https://docs.neuralbazaar.local/promptpilot/api', NULL, NULL, '[]'::jsonb, 6340),
+      (1007, '0x4444444444444444444444444444444444444444', 'QmAgentFlow', 'ipfs://QmAgentFlowMetadata', 'AgentFlow Support', 'Composable customer-support agent with tools, guardrails, and human handoff.', 'Agent', ARRAY['agents','support','tools','workflow'], 'Custom commercial', 'v1.2.0', 16384, '1x L4 24 GB VRAM', ARRAY['Python','TypeScript'], ARRAY['agent-1','agent-2'], 'https://docs.neuralbazaar.local/agentflow', 'https://docs.neuralbazaar.local/agentflow/api', NULL, NULL, '[]'::jsonb, 5280),
+      (1008, '0x3333333333333333333333333333333333333333', 'QmRetailDataset', 'ipfs://QmRetailDatasetMetadata', 'Retail Intent Dataset', 'Labeled retail queries for intent routing, search, and product-support evaluation.', 'Dataset', ARRAY['dataset','retail','intent','evaluation'], 'CC BY 4.0', 'v1.0.0', NULL, 'No GPU required', ARRAY['CSV','JSONL','Python'], ARRAY['dataset-1','dataset-2'], 'https://docs.neuralbazaar.local/retail-dataset', NULL, NULL, NULL, '[]'::jsonb, 3890),
+      (1009, '0x4444444444444444444444444444444444444444', 'QmGuardRail', 'ipfs://QmGuardRailMetadata', 'GuardRail Moderation', 'Fast text safety classifier for user-generated content and community moderation.', 'Natural Language', ARRAY['moderation','safety','text','classification'], 'MIT', 'v2.2.0', 4096, 'CPU or 1x T4', ARRAY['Python','JavaScript','cURL'], ARRAY['guard-1','guard-2'], 'https://docs.neuralbazaar.local/guardrail', 'https://docs.neuralbazaar.local/guardrail/api', NULL, NULL, '[]'::jsonb, 9460),
+      (1010, '0x3333333333333333333333333333333333333333', 'QmDiffusionCanvas', 'ipfs://QmDiffusionCanvasMetadata', 'Diffusion Canvas', 'Prompt-to-image generation tuned for product concept exploration and moodboards.', 'Computer Vision', ARRAY['image-generation','diffusion','creative'], 'Custom commercial', 'v0.9.4', 8192, '1x A10 24 GB VRAM', ARRAY['Python','JavaScript'], ARRAY['canvas-1','canvas-2'], 'https://docs.neuralbazaar.local/diffusion-canvas', 'https://docs.neuralbazaar.local/diffusion-canvas/api', NULL, NULL, '[]'::jsonb, 12860)
+    ON CONFLICT (model_id_onchain) DO NOTHING;
+
+    INSERT INTO creator_reputation (user_id, reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified)
+    SELECT id, 92, 95, 128, 18420, 4.9, true FROM users WHERE lower(wallet_address) = lower('0x1111111111111111111111111111111111111111') ON CONFLICT (user_id) DO NOTHING;
+    INSERT INTO creator_reputation (user_id, reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified)
+    SELECT id, 88, 91, 64, 8930, 4.7, true FROM users WHERE lower(wallet_address) = lower('0x2222222222222222222222222222222222222222') ON CONFLICT (user_id) DO NOTHING;
+    INSERT INTO creator_reputation (user_id, reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified)
+    SELECT id, 86, 89, 52, 12860, 4.8, true FROM users WHERE lower(wallet_address) = lower('0x3333333333333333333333333333333333333333') ON CONFLICT (user_id) DO NOTHING;
+    INSERT INTO creator_reputation (user_id, reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified)
+    SELECT id, 84, 87, 41, 11780, 4.6, true FROM users WHERE lower(wallet_address) = lower('0x4444444444444444444444444444444444444444') ON CONFLICT (user_id) DO NOTHING;
+    INSERT INTO creator_reputation (user_id, reputation_score, trust_score, successful_sales, successful_downloads, average_rating, verified)
+    SELECT id, 83, 86, 37, 19340, 4.7, true FROM users WHERE lower(wallet_address) = lower('0x5555555555555555555555555555555555555555') ON CONFLICT (user_id) DO NOTHING;
+
+    INSERT INTO benchmark_runs (model_id, status, accuracy, latency_ms, inference_speed, gpu_memory_mb, cost_per_1k_tokens, model_size_bytes, dataset_name, runner_version, completed_at)
+    SELECT id, 'completed', 0.942, 42.0, 23.8, 4096, 0.012, 185000000, 'retail-search-v3', 'neuralbazaar-runner-1.2', now() FROM models m WHERE model_id_onchain = 1001 AND NOT EXISTS (SELECT 1 FROM benchmark_runs b WHERE b.model_id = m.id AND b.status = 'completed');
+    INSERT INTO benchmark_runs (model_id, status, accuracy, latency_ms, inference_speed, gpu_memory_mb, cost_per_1k_tokens, model_size_bytes, dataset_name, runner_version, completed_at)
+    SELECT id, 'completed', 0.887, 68.0, 14.7, 2048, 0.008, 92000000, 'operations-forecast-v2', 'neuralbazaar-runner-1.2', now() FROM models m WHERE model_id_onchain = 1002 AND NOT EXISTS (SELECT 1 FROM benchmark_runs b WHERE b.model_id = m.id AND b.status = 'completed');
+
+    INSERT INTO ratings (rater_wallet, target_type, target_key, score, review) VALUES
       ('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'model', (SELECT id::text FROM models WHERE model_id_onchain = 1001), 5, 'Excellent retrieval quality and a clean API.'),
       ('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'model', (SELECT id::text FROM models WHERE model_id_onchain = 1001), 5, 'The playground made evaluation quick.'),
-      ('0xcccccccccccccccccccccccccccccccccccccc', 'model', (SELECT id::text FROM models WHERE model_id_onchain = 1002), 5, 'Clear forecasts with useful uncertainty bands.')
-     ON CONFLICT DO NOTHING;`
-  );
+      ('0xcccccccccccccccccccccccccccccccccccccc', 'model', (SELECT id::text FROM models WHERE model_id_onchain = 1002), 5, 'Clear forecasts with useful uncertainty bands.'),
+      ('0xdddddddddddddddddddddddddddddddddddddd', 'model', (SELECT id::text FROM models WHERE model_id_onchain = 1004), 5, 'A strong Kannada OCR starting point.'),
+      ('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', 'model', (SELECT id::text FROM models WHERE model_id_onchain = 1007), 4, 'Useful tools and clear handoff controls.')
+    ON CONFLICT DO NOTHING;
+  `);
   console.log("Seed data inserted");
   await pool.end();
 }
 
-main().catch(async (error) => {
-  console.error(error);
-  await pool.end();
-  process.exitCode = 1;
-});
+main().catch(async error => { console.error(error); await pool.end(); process.exitCode = 1; });

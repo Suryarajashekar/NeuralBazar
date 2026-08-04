@@ -698,6 +698,44 @@ CREATE TABLE IF NOT EXISTS model_comments (
 );
 CREATE INDEX IF NOT EXISTS model_comments_moderation_idx ON model_comments(moderation_status, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS model_likes (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, model_id)
+);
+CREATE INDEX IF NOT EXISTS model_likes_model_idx ON model_likes(model_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS model_shares (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  channel TEXT NOT NULL DEFAULT 'copy_link',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS model_shares_model_idx ON model_shares(model_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS model_discussions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  author_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'discussion' CHECK (kind IN ('discussion', 'bug', 'feature', 'question')),
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'resolved', 'closed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS discussion_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  discussion_id UUID NOT NULL REFERENCES model_discussions(id) ON DELETE CASCADE,
+  author_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS model_discussions_model_idx ON model_discussions(model_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS discussion_comments_thread_idx ON discussion_comments(discussion_id, created_at ASC);
+
 CREATE TABLE IF NOT EXISTS creator_experiments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -87,8 +87,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { nonce } = await apiFetch<{ nonce: string }>("/api/auth/nonce", { method: "POST", body: JSON.stringify({ address: walletAddress }) });
       const message = `${window.location.host} wants you to sign in with your Ethereum account:\n${walletAddress}\n\nSign in to NeuralBazaar.\n\nURI: ${window.location.origin}\nVersion: 1\nChain ID: ${CHAIN.id}\nNonce: ${nonce}\nIssued At: ${new Date().toISOString()}`;
       const signature = await signMessageAsync({ message });
-      const preferredAccountType = sessionStorage.getItem("neuralbazaar_account_type") || "customer";
-      const payload = await apiFetch<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ message, signature, preferredAccountType }) });
+      const preferredRole = sessionStorage.getItem("neuralbazaar_role") || "";
+      const preferredAccountType = preferredRole === "creator" || sessionStorage.getItem("neuralbazaar_account_type") === "developer" ? "developer" : "customer";
+      const payload = await apiFetch<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ message, signature, preferredAccountType, preferredRole: ["customer", "creator", "admin"].includes(preferredRole) ? preferredRole : undefined }) });
       if (currentAddressRef.current?.toLowerCase() !== walletAddress.toLowerCase()) return;
       setUser(payload.user);
     } catch (authError) { setError(readableAuthError(authError)); }

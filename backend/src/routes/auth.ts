@@ -47,9 +47,9 @@ router.post("/nonce", authRateLimit, validateRequest({ body: z.object({ address:
   } catch (error) { next(error); }
 });
 
-router.post("/verify", authRateLimit, validateRequest({ body: z.object({ message: z.string().min(1).max(5000), signature: z.string().min(1).max(500), preferredAccountType: z.enum(["customer", "developer"]).optional() }) }), async (req, res, next) => {
+router.post("/verify", authRateLimit, validateRequest({ body: z.object({ message: z.string().min(1).max(5000), signature: z.string().min(1).max(500), preferredAccountType: z.enum(["customer", "developer"]).optional(), preferredRole: z.enum(["customer", "creator", "admin"]).optional() }) }), async (req, res, next) => {
   try {
-    const body = z.object({ message: z.string().min(1), signature: z.string().min(1), preferredAccountType: z.enum(["customer", "developer"]).optional() }).parse(req.body);
+    const body = z.object({ message: z.string().min(1), signature: z.string().min(1), preferredAccountType: z.enum(["customer", "developer"]).optional(), preferredRole: z.enum(["customer", "creator", "admin"]).optional() }).parse(req.body);
     const message = new SiweMessage(body.message);
     const address = message.address.toLowerCase();
     addressSchema.parse(address);
@@ -66,13 +66,22 @@ router.post("/verify", authRateLimit, validateRequest({ body: z.object({ message
       await client.query("SELECT pg_advisory_xact_lock($1)", [918273]);
       const adminCheck = await client.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM users WHERE role IN ('admin', 'super_admin')) AS exists");
       const firstUser = !adminCheck.rows[0].exists && !config.adminWalletAddress;
-      const shouldBeSuperAdmin = address === config.adminWalletAddress || firstUser;
+      const existing = await client.query<{ role: Role }>("SELECT role FROM users WHERE lower(wallet_address) = lower($1)", [address]);
+      const existingAdmin = existing.rows[0] && ["admin", "super_admin"].includes(existing.rows[0].role);
+      const bootstrapAdmin = firstUser && body.preferredRole === "admin";
+      const shouldBeSuperAdmin = address === config.adminWalletAddress || bootstrapAdmin || Boolean(existingAdmin);
+      if (body.preferredRole === "admin" && !shouldBeSuperAdmin) {
+        const error = new Error("Admin access requires an approved administrator wallet");
+        (error as Error & { statusCode: number }).statusCode = 403;
+        throw error;
+      }
+      const requestedRole = body.preferredRole === "creator" ? "creator" : "customer";
       const result = await client.query<{ id: string; wallet_address: string; role: Role; account_type: "customer" | "developer"; username: string | null; bio: string; avatar_url: string | null; account_status: "active" | "suspended" | "banned" | "deleted" }>(
         `INSERT INTO users (wallet_address, role, account_type) VALUES ($1, $2, $3)
          ON CONFLICT (wallet_address) DO UPDATE SET account_type = EXCLUDED.account_type,
-           role = CASE WHEN $4::boolean THEN 'super_admin' ELSE users.role END,
+           role = CASE WHEN $4::boolean THEN 'super_admin' WHEN users.role IN ('admin', 'super_admin', 'creator') THEN users.role WHEN $5 = 'creator' THEN 'creator' ELSE users.role END,
            updated_at = now()
-         RETURNING id, wallet_address, role, account_type, username, bio, avatar_url, account_status`, [address, shouldBeSuperAdmin ? "super_admin" : "customer", body.preferredAccountType ?? "customer", shouldBeSuperAdmin]
+         RETURNING id, wallet_address, role, account_type, username, bio, avatar_url, account_status`, [address, shouldBeSuperAdmin ? "super_admin" : requestedRole, body.preferredRole === "creator" ? "developer" : body.preferredAccountType ?? "customer", shouldBeSuperAdmin, requestedRole]
       );
       const identity = result.rows[0];
       if (!identity || identity.account_status !== "active") {

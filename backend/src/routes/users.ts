@@ -8,11 +8,12 @@ import { normalizeUsername, usernameChangeAllowed } from "../services/username";
 
 const router = Router();
 const usernameParam = z.object({ username: z.string().min(1).max(60) });
+const avatarSchema = z.string().max(4_000_000).refine(value => /^data:image\/(png|jpe?g|webp|gif);base64,/.test(value) || z.string().url().safeParse(value).success, "Avatar must be an image URL or a PNG, JPEG, WebP, or GIF image");
 const profileSchema = z.object({
   username: z.string().optional(),
   displayName: z.string().trim().max(80).optional(),
   bio: z.string().max(500).optional(),
-  avatarUrl: z.string().url().max(2048).optional(),
+  avatarUrl: avatarSchema.optional(),
   bannerUrl: z.string().url().max(2048).optional(),
   ensName: z.string().trim().max(255).optional(),
   website: z.string().url().max(2048).optional(),
